@@ -1,0 +1,22 @@
+{
+  "expo": {
+    "name": "Chạm Ly",
+    "slug": "cham-ly-mobile",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "dark",
+    "scheme": "chamly",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.chamly.mobile"
+    },
+    "android": {
+      "package": "com.chamly.mobile"
+    },
+    "web": {
+      "bundler": "metro",
+      "name": "Chạm Ly"
+    },
+    "plugins": ["expo-build-properties"]
+  }
+}

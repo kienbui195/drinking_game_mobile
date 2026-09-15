@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Chạm Ly — kế hoạch GitHub và Linux</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: light only;
+      }
+      body {
+        margin: 0;
+        background: #f1f5f9;
+        color: #0f172a;
+        font: 16px/1.7 system-ui;
+      }
+      aside {
+        position: fixed;
+        width: 240px;
+        inset: 0 auto 0 0;
+        padding: 24px;
+        background: white;
+        border-right: 1px solid #e2e8f0;
+      }
+      main {
+        margin-left: 290px;
+        padding: 36px;
+      }
+      section {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 24px;
+        margin: 24px 0;
+      }
+      h1 {
+        font-size: 32px;
+      }
+      h2 {
+        font-size: 24px;
+      }
+      h1,
+      h2,
+      h3 {
+        font-weight: 700;
+      }
+      a {
+        color: #4338ca;
+      }
+      aside a {
+        display: block;
+        margin: 12px 0;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: #f8fafc;
+        padding: 16px;
+        border-radius: 12px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      td,
+      th {
+        padding: 12px;
+        border-bottom: 1px solid #e2e8f0;
+        text-align: left;
+      }
+      code {
+        background: #f1f5f9;
+        padding: 2px 5px;
+        border-radius: 4px;
+      }
+      .pending {
+        color: #92400e;
+      }
+      @media (max-width: 800px) {
+        aside {
+          position: static;
+          width: auto;
+        }
+        main {
+          margin: 0;
+          padding: 16px;
+        }
+      }
+    </style>
+    <style>
+      main h1 { font-size: 32px; font-weight: 800; margin-bottom: 16px; }
+      main h2, aside h2 { font-size: 24px; font-weight: 750; margin-bottom: 16px; }
+      main h3, aside h3 { font-weight: 700; margin: 16px 0 8px; }
+      main p { margin: 12px 0; }
+      main ol { list-style: decimal; padding-left: 24px; }
+      main ul { list-style: disc; padding-left: 24px; }
+      main li { margin: 8px 0; }
+      main a, aside a { color: #4338ca; }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h2>Đưa Chạm Ly lên Linux</h2>
+      <a href="#overview">Phương án</a><a href="#github">1. GitHub</a
+      ><a href="#server">2. VPS &amp; DNS</a><a href="#deploy">3. Deploy</a
+      ><a href="#accept">4. Nghiệm thu</a><a href="#operations">5. Cập nhật / backup</a
+      ><a href="#inputs">Thông tin cần chốt</a>
+      <hr />
+      <h3>Tài liệu trong series</h3>
+      <a href="00-state.md">0. Trạng thái</a
+      ><a href="implementation.html">1. Triển khai &amp; chạy thử</a
+      ><strong>2. Kế hoạch deploy (đang xem)</strong>
+    </aside>
+    <main>
+      <h1>Kế hoạch push GitHub và deploy Linux</h1>
+      <p>
+        Phương án đầu tiên dùng một VPS Linux chạy Docker Compose. Caddy phục vụ web và cấp HTTPS;
+        API NestJS và MySQL chỉ được truy cập trong mạng container. Đây là kế hoạch cùng cấu hình
+        mẫu, chưa phải xác nhận đã deploy server thật.
+      </p>
+      <section id="overview">
+        <h2>Kiến trúc đích</h2>
+        <p>
+          <strong>play.example.com</strong> → Caddy → web Expo đã build.<br /><strong
+            >api.example.com</strong
+          >
+          → Caddy → NestJS/Socket.IO → MySQL 8.4.
+        </p>
+        <p>
+          Expo Go hoặc APK kết nối trực tiếp API HTTPS. Máy chủ mở cổng 80/443 và SSH; không publish
+          3000 hay 3306. Một backend instance phù hợp MVP; restart có thời gian gián đoạn ngắn,
+          client reconnect và phục hồi từ MySQL.
+        </p>
+        <table>
+          <tr>
+            <th>File đã chuẩn bị</th>
+            <th>Vai trò</th>
+          </tr>
+          <tr>
+            <td>compose.production.yaml</td>
+            <td>Stack production riêng, image gắn RELEASE_TAG, health check và giới hạn log.</td>
+          </tr>
+          <tr>
+            <td>apps/mobile/Dockerfile</td>
+            <td>Build web với URL API thật rồi đóng gói cùng Caddy.</td>
+          </tr>
+          <tr>
+            <td>deploy/Caddyfile</td>
+            <td>Hai domain, HTTPS tự động và reverse proxy WebSocket.</td>
+          </tr>
+          <tr>
+            <td>.env.production.example</td>
+            <td>Mẫu domain, email ACME, mật khẩu MySQL và release tag.</td>
+          </tr>
+        </table>
+        <p>
+          Compose local và production là hai file độc lập. Không ghép hai file bằng nhiều cờ -f vì
+          file local publish các cổng phục vụ phát triển.
+        </p>
+      </section>
+      <section id="github">
+        <h2>1. Đưa code lên GitHub</h2>
+        <p>
+          Thư mục hiện chưa có Git repository. Tên repository và public/private cần được chọn trước.
+          Các lệnh dưới đây là hướng dẫn thực hiện, chưa được chạy để tạo remote hoặc push.
+        </p>
+        <pre>
+# Tại thư mục gốc dự án
+git init -b main
+git status --short
+git check-ignore .env apps/mobile/.env.local
+
+# Kiểm tra file sẽ đưa vào lịch sử, gồm cấu hình, source, lockfile, tests và docs.
+git add .gitignore .dockerignore .prettierignore .prettierrc.json AGENTS.md package.json package-lock.json compose.yaml compose.production.yaml .env.example .env.production.example playwright.config.ts apps packages tests deploy docs
+git diff --cached --stat
+git diff --cached
+git commit -m "feat: bootstrap multiplayer drinking game"
+
+gh auth login
+gh repo create OWNER/drinking-game-mobile --private --source=. --remote=origin --push
+git tag v0.1.0
+git push origin v0.1.0</pre>
+        <p>
+          Thay OWNER bằng tài khoản/organization thật. Chuyển --private thành --public nếu đã quyết
+          định công khai. File .env, .env.local, .env.production, node_modules và build output đã
+          được ignore. Issue tracker vẫn có thể giữ local markdown dù source nằm trên GitHub.
+        </p>
+        <p>
+          Hoàn thành khi GitHub có source và lockfile, tag v0.1.0, không có credential trong diff.
+          Không commit token EAS, mật khẩu MySQL hoặc private key SSH.
+        </p>
+      </section>
+      <section id="server">
+        <h2>2. Chuẩn bị VPS Linux và DNS</h2>
+        <ol>
+          <li>
+            Đề xuất Ubuntu 24.04 LTS, 2 vCPU / 4 GB RAM nếu build image ngay trên VPS; đây là điểm
+            khởi đầu, chưa phải sizing từ benchmark.
+          </li>
+          <li>
+            Cài Docker Engine và Docker Compose plugin theo hướng dẫn chính thức cho distro. Xác
+            minh bằng docker version và docker compose version.
+          </li>
+          <li>
+            Tạo user triển khai, thiết lập SSH key. Với repo private, dùng deploy key chỉ đọc hoặc
+            cơ chế GitHub CLI phù hợp trên server.
+          </li>
+          <li>
+            Trỏ A record của domain web và API về public IPv4 của VPS. Chỉ thêm AAAA nếu IPv6 thực
+            sự hoạt động.
+          </li>
+          <li>
+            Cho phép đúng cổng SSH đang dùng trước khi bật firewall; mở TCP 80/443 và tùy chọn UDP
+            443. Không mở database ra Internet.
+          </li>
+          <li>
+            Đảm bảo cổng 80/443 chưa bị reverse proxy khác chiếm. Nếu VPS đã có Nginx/Caddy chung,
+            tích hợp routing vào proxy hiện hữu thay vì chạy thêm stack chiếm cùng cổng.
+          </li>
+        </ol>
+        <p>
+          Hoàn thành khi SSH và Docker hoạt động, DNS trỏ đúng và cổng chứng chỉ HTTPS được truy cập
+          từ Internet.
+        </p>
+      </section>
+      <section id="deploy">
+        <h2>3. Clone, cấu hình và triển khai phiên bản đầu</h2>
+        <pre>
+git clone git@github.com:OWNER/drinking-game-mobile.git
+# Chuyển terminal vào thư mục vừa clone.
+git checkout v0.1.0
+cp .env.production.example .env.production
+chmod 600 .env.production
+openssl rand -hex 32
+openssl rand -hex 32</pre>
+        <p>
+          Điền APP_DOMAIN, API_DOMAIN, ACME_EMAIL, hai mật khẩu sinh riêng và RELEASE_TAG=v0.1.0 vào
+          .env.production. Giá trị mật khẩu khởi tạo MySQL chỉ áp dụng khi volume mới; sửa file env
+          không tự đổi password trong database đã tồn tại.
+        </p>
+        <pre>
+docker compose --env-file .env.production -f compose.production.yaml config --quiet
+docker compose --env-file .env.production -f compose.production.yaml build
+docker compose --env-file .env.production -f compose.production.yaml up -d --wait
+docker compose --env-file .env.production -f compose.production.yaml ps
+docker compose --env-file .env.production -f compose.production.yaml logs --tail=100 api web
+
+curl --fail https://api.example.com/health
+curl --head https://play.example.com</pre>
+        <p>
+          URL API được đưa vào web trong bước build, không phải lúc container khởi động. Thay domain
+          API phải rebuild web; APK cũng cần build lại. MySQL tự tạo schema ban đầu và seed 50 lá
+          khi API khởi động; các lần khởi động tiếp theo không ghi đè seed.
+        </p>
+        <p>
+          Caddy giữ chứng chỉ ở caddy_data; MySQL giữ dữ liệu ở mysql_data. Các volume thuộc project
+          chamly-production, tách khỏi database local.
+        </p>
+      </section>
+      <section id="accept">
+        <h2>4. Nghiệm thu trên môi trường Linux</h2>
+        <table>
+          <tr>
+            <th>Kịch bản</th>
+            <th>Kết quả mong đợi</th>
+          </tr>
+          <tr>
+            <td>Mở web bằng HTTPS</td>
+            <td>Không mixed-content, không lỗi CORS; health trả status ok.</td>
+          </tr>
+          <tr>
+            <td>Hai máy ở hai mạng khác nhau vào cùng phòng</td>
+            <td>
+              Danh sách thành viên và lá bài cập nhật nhất quán, không chỉ hoạt động trong LAN.
+            </td>
+          </tr>
+          <tr>
+            <td>Sai mật khẩu, sai lượt, người ngoài đoán mã</td>
+            <td>Server từ chối.</td>
+          </tr>
+          <tr>
+            <td>Reload web hoặc tắt/bật mạng</td>
+            <td>Vào lại đúng phòng và lượt khi token còn.</td>
+          </tr>
+          <tr>
+            <td>Restart container API trong phiên thử nghiệm</td>
+            <td>Có gián đoạn kết nối ngắn, sau đó khôi phục đúng lá và lượt.</td>
+          </tr>
+          <tr>
+            <td>Expo Go / APK dùng URL API HTTPS</td>
+            <td>Chơi chung với web; xác nhận trên điện thoại thật.</td>
+          </tr>
+          <tr>
+            <td>Backup và restore vào môi trường riêng</td>
+            <td>Dữ liệu đọc được và tiến trình phục hồi đúng.</td>
+          </tr>
+        </table>
+        <p class="pending">
+          Tất cả kiểm tra trên VPS và domain thật đang chờ thông tin máy chủ; chưa có kết quả
+          production.
+        </p>
+      </section>
+      <section id="operations">
+        <h2>5. Cập nhật phiên bản, rollback và backup</h2>
+        <h3>Phát hành</h3>
+        <p>
+          Giai đoạn đầu deploy thủ công bằng tag để giảm số thành phần. Mỗi bản cần chạy typecheck,
+          unit, integration và UI tests trước khi tạo tag. Khi quy trình ổn định mới bổ sung GitHub
+          Actions build image lên GHCR và deploy qua SSH/environment secrets.
+        </p>
+        <pre>
+git fetch --tags origin
+git checkout v0.1.1
+# Đổi RELEASE_TAG=v0.1.1 trong .env.production
+docker compose --env-file .env.production -f compose.production.yaml build
+docker compose --env-file .env.production -f compose.production.yaml up -d --wait
+curl --fail https://api.example.com/health</pre>
+        <p>
+          Build trước khi thay container để tránh dừng dịch vụ trong lúc build. Đây không phải
+          zero-downtime deployment. Thử update ngoài thời điểm có phòng quan trọng.
+        </p>
+        <h3>Rollback</h3>
+        <p>
+          Giữ image/tag của bản trước. Checkout tag cũ, đổi RELEASE_TAG về bản đó, chạy up -d
+          --no-build --wait và kiểm tra health. Nếu release có đổi schema hoặc định dạng JSON phòng,
+          cần migration tương thích ngược hoặc phương án restore đã thử; không giả định rollback
+          code tự rollback được dữ liệu.
+        </p>
+        <h3>Backup</h3>
+        <pre>
+mkdir -p backups
+docker compose --env-file .env.production -f compose.production.yaml exec -T db sh -c 'MYSQL_PWD="$MYSQL_PASSWORD" mysqldump -u "$MYSQL_USER" --single-transaction --no-tablespaces "$MYSQL_DATABASE"' &gt; "backups/chamly-$(date +%Y%m%d-%H%M%S).sql"</pre>
+        <p>
+          Kiểm tra exit code và dung lượng file trước khi coi là thành công. Lập lịch backup hàng
+          ngày, mã hóa và sao chép ra nơi khác; giữ tối thiểu các bản gần nhất phù hợp nhu cầu lưu
+          phiên. Backup chứa hash phiên và mật khẩu phòng, chỉ cấp quyền cho người vận hành. Thử
+          restore trên một stack riêng trước khi phục hồi vào database thật. Volume không thay thế
+          backup; docker compose down -v sẽ xóa volume của stack được chỉ định.
+        </p>
+        <h3>Theo dõi vận hành</h3>
+        <p>
+          Giám sát HTTPS health endpoint, dung lượng ổ đĩa, trạng thái container và log lỗi API. Cấu
+          hình mẫu giới hạn log từng container 3 file × 10 MB. Load test và chống abuse ở tầng
+          public edge cần được đánh giá trước khi mở rộng số người dùng.
+        </p>
+      </section>
+      <section id="inputs">
+        <h2>Thông tin cần chốt trước khi deploy thật</h2>
+        <ul>
+          <li>GitHub owner/repo, public hay private.</li>
+          <li>IP server, Linux distro, user SSH và cổng SSH.</li>
+          <li>Domain web và API; DNS đang được quản lý ở đâu.</li>
+          <li>Server đã có reverse proxy hoặc ứng dụng dùng cổng 80/443 chưa.</li>
+          <li>Nơi lưu backup ngoài VPS.</li>
+          <li>Tài khoản Expo/EAS để build APK.</li>
+        </ul>
+        <p>
+          Chưa chạy git init/commit/push và chưa truy cập server bên ngoài. Các cấu hình production
+          sẽ được kiểm tra cú pháp/build local; việc cấp chứng chỉ và DNS chỉ kiểm chứng được khi có
+          domain và VPS thật.
+        </p>
+      </section>
+      <footer><a href="implementation.html">← Triển khai &amp; chạy thử</a></footer>
+    </main>
+  </body>
+</html>

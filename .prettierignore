@@ -1,0 +1,6 @@
+node_modules
+dist
+dist-native
+package-lock.json
+test-results
+docs/agents

@@ -1,0 +1,38 @@
+{
+  "name": "@chamly/app",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "export:web": "expo export --platform web",
+    "build:apk": "npx eas-cli build --platform android --profile preview"
+  },
+  "dependencies": {
+    "@chamly/shared": "*",
+    "@expo/metro-runtime": "~57.0.15",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "~57.0.22",
+    "expo-build-properties": "~57.0.17",
+    "expo-crypto": "~57.0.3",
+    "expo-secure-store": "~57.0.4",
+    "expo-status-bar": "~57.0.1",
+    "nativewind": "^4.2.7",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "react-native": "0.86.3",
+    "react-native-reanimated": "4.5.1",
+    "react-native-safe-area-context": "~5.7.0",
+    "react-native-web": "^0.21.2",
+    "react-native-worklets": "0.10.1",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.25.2",
+    "@types/react": "~19.2.4",
+    "tailwindcss": "^3.4.17",
+    "typescript": "~5.9.2"
+  }
+}

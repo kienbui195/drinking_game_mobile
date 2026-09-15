@@ -1,0 +1,15 @@
+{
+    email {$ACME_EMAIL}
+}
+
+{$API_DOMAIN} {
+    reverse_proxy api:3000
+}
+
+{$APP_DOMAIN} {
+    encode zstd gzip
+    root * /srv
+    header /index.html Cache-Control "no-cache"
+    try_files {path} /index.html
+    file_server
+}

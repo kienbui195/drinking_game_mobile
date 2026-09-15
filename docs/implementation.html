@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Chạm Ly — triển khai và chạy thử</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root {
+        color-scheme: light only;
+      }
+      body {
+        margin: 0;
+        background: #f1f5f9;
+        color: #0f172a;
+        font: 16px/1.7 system-ui;
+      }
+      aside {
+        position: fixed;
+        width: 240px;
+        inset: 0 auto 0 0;
+        padding: 24px;
+        background: white;
+        border-right: 1px solid #e2e8f0;
+      }
+      main {
+        margin-left: 290px;
+        padding: 36px;
+      }
+      section {
+        background: white;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 24px;
+        margin: 24px 0;
+      }
+      h1 {
+        font-size: 32px;
+      }
+      h2 {
+        font-size: 24px;
+      }
+      h1,
+      h2,
+      h3 {
+        font-weight: 700;
+      }
+      a {
+        color: #4338ca;
+      }
+      aside a {
+        display: block;
+        margin: 12px 0;
+      }
+      pre {
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+        background: #f8fafc;
+        padding: 16px;
+        border-radius: 12px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+      }
+      td,
+      th {
+        padding: 12px;
+        border-bottom: 1px solid #e2e8f0;
+        text-align: left;
+      }
+      .pass {
+        color: #166534;
+      }
+      .pending {
+        color: #92400e;
+      }
+      code {
+        background: #f1f5f9;
+        padding: 2px 5px;
+        border-radius: 4px;
+      }
+      @media (max-width: 800px) {
+        aside {
+          position: static;
+          width: auto;
+        }
+        main {
+          margin: 0;
+          padding: 16px;
+        }
+      }
+    </style>
+    <style>
+      main h1 { font-size: 32px; font-weight: 800; margin-bottom: 16px; }
+      main h2, aside h2 { font-size: 24px; font-weight: 750; margin-bottom: 16px; }
+      main h3, aside h3 { font-weight: 700; margin: 16px 0 8px; }
+      main p { margin: 12px 0; }
+      main ol { list-style: decimal; padding-left: 24px; }
+      main ul { list-style: disc; padding-left: 24px; }
+      main li { margin: 8px 0; }
+      main a, aside a { color: #4338ca; }
+    </style>
+  </head>
+  <body>
+    <aside>
+      <h2>Chạm Ly</h2>
+      <a href="#overview">Tổng quan</a><a href="#run">Chạy local</a
+      ><a href="#rules">Luật phiên chơi</a><a href="#architecture">Kiến trúc &amp; dữ liệu</a
+      ><a href="#acceptance">Kiểm chứng</a><a href="#apk">Expo Go &amp; APK</a>
+      <hr />
+      <h3>Tài liệu trong series</h3>
+      <a href="00-state.md">0. Trạng thái</a><strong>1. Triển khai (đang xem)</strong
+      ><a href="deployment-plan.html">2. Kế hoạch GitHub / Linux</a>
+    </aside>
+    <main>
+      <h1>Chạm Ly — MVP nhiều người chơi</h1>
+      <p>
+        Mỗi người nhập tên trên thiết bị riêng, tạo hoặc vào phòng có mật khẩu và cùng theo dõi một
+        ván bài. Server NestJS quyết định trạng thái chung; MySQL giữ tiến trình để khôi phục sau
+        khi backend khởi động lại.
+      </p>
+      <section id="overview">
+        <h2>1. Bức tranh tổng thể</h2>
+        <ol>
+          <li>Nhập tên → cấp phiên khách, không cần tài khoản.</li>
+          <li>Tạo phòng có tên và mật khẩu, hoặc vào bằng mã phòng và mật khẩu.</li>
+          <li>Chủ phòng sửa bản sao bộ 50 lá; các phòng khác không đổi.</li>
+          <li>Bắt đầu: chia bài úp, lần lượt mở bài và xác nhận kết quả.</li>
+          <li>
+            Thiếu bài: chủ phòng xáo lại hoặc kết thúc. Thiết bị mất mạng vào lại lấy trạng thái mới
+            nhất.
+          </li>
+        </ol>
+        <p>
+          Bản gốc là web React/Vite, nhập danh sách người chơi thủ công và lưu snapshot trên một
+          trình duyệt. Bản gốc thực tế có 60 lá; MVP dùng card-1 đến card-50. Những lá có luật tương
+          tác ngoài đời vẫn do cả bàn thực hiện.
+        </p>
+        <table>
+          <tr>
+            <th>Trong phạm vi</th>
+            <th>Phần chưa triển khai</th>
+          </tr>
+          <tr>
+            <td>
+              Web, code native Expo, phòng mật khẩu, deck CRUD, realtime, thống kê và reconnect
+            </td>
+            <td>
+              Tài khoản lâu dài, lịch sử nhiều phiên, chat/video, CMS, tự động đánh giá thử thách
+              ngoài đời
+            </td>
+          </tr>
+          <tr>
+            <td>Docker Compose phát triển; cấu hình production mẫu</td>
+            <td>Deploy lên VPS thật, đo tải, tài khoản và chữ ký EAS, kiểm thử điện thoại thật</td>
+          </tr>
+        </table>
+      </section>
+      <section id="run">
+        <h2>2. Chạy tại máy phát triển</h2>
+        <p>
+          Yêu cầu Node.js 22.13+, npm, Docker Engine và Compose. Chạy các lệnh sau ở thư mục gốc dự
+          án:
+        </p>
+        <pre>
+npm ci
+docker compose up -d --build
+npm run web</pre>
+        <p>
+          Web tại <a href="http://localhost:8081">localhost:8081</a>, API health tại
+          <a href="http://localhost:3000/health">localhost:3000/health</a>. Database chỉ bind
+          loopback 127.0.0.1:3307. Để thử hai người, dùng hai browser context riêng (cửa sổ thường
+          và ẩn danh), vì hai tab chung trình duyệt dùng cùng token lưu cục bộ.
+        </p>
+        <p>
+          Máy hiện tại đã cấu hình địa chỉ LAN <code>192.168.1.239</code>. File
+          <code>apps/mobile/.env.local</code> chứa EXPO_PUBLIC_API_URL; file <code>.env</code> chứa
+          CORS_ORIGINS cho localhost và LAN. Địa chỉ LAN thay đổi thì cập nhật hai file và khởi động
+          lại Expo/API. Các file này bị Git ignore.
+        </p>
+        <pre>
+# Phát triển backend ngoài Docker, vẫn dùng MySQL container:
+docker compose stop api
+npm run api
+
+# Kiểm thử:
+npm run typecheck
+npm run build:api
+npm test
+npm run test:integration
+EXPO_OFFLINE=1 npm run export:web -w @chamly/app
+npx playwright install chromium
+npm run test:e2e</pre>
+        <p>
+          Test integration dùng database local trên cổng 3307, tạo dữ liệu riêng rồi dọn dữ liệu đó;
+          một test khởi chạy backend thử nghiệm ở cổng 3011 để kiểm tra restart. Playwright mở hai
+          trình duyệt thật và tự bấm UI. Ảnh nằm ở <code>test-results/</code>.
+        </p>
+      </section>
+      <section id="rules">
+        <h2>3. Quy ước MVP</h2>
+        <ul>
+          <li>Phòng từ 2 đến 12 người; tên người chơi không trùng trong cùng phòng.</li>
+          <li>Bộ riêng từ 2 đến 200 lá, phải đủ lá cho một vòng. Chỉ chủ phòng sửa tại lobby.</li>
+          <li>Chỉ thành viên đã có chỗ mới reconnect giữa ván; người mới chờ ván sau.</li>
+          <li>
+            Chủ phòng rời chủ động: chuyển quyền cho thành viên tiếp theo. Chủ phòng offline: giữ
+            quyền để reconnect; chưa có tự động chuyển quyền.
+          </li>
+          <li>
+            Chủ phòng có thể bỏ lượt hiện tại; các người chơi khác chỉ điều khiển lượt của mình.
+          </li>
+          <li>
+            Đồng hồ có một deadline từ server, hiển thị trên tất cả thiết bị; không tự xử thua khi
+            hết giờ.
+          </li>
+          <li>
+            Thống kê số ngụm thuộc người đang ở lượt; việc chỉ định/ngụm của người khác không được
+            tự động tính.
+          </li>
+          <li>
+            Phòng hết hạn sau 24 giờ từ thao tác thay đổi gần nhất, phiên khách hết hạn sau 30 ngày.
+            Lịch sử giữ 500 lượt gần nhất; UI hiển thị 20.
+          </li>
+        </ul>
+        <p class="pending">
+          Các giới hạn và hành vi biên trên là mặc định triển khai MVP, chưa được duyệt riêng như
+          yêu cầu nghiệp vụ lâu dài.
+        </p>
+      </section>
+      <section id="architecture">
+        <h2>4. Kiến trúc hiện trạng</h2>
+        <p>
+          <code>apps/mobile</code> dùng React Native + Expo SDK 57 + NativeWind 4.
+          <code>apps/api</code> dùng NestJS 11, Socket.IO 4 và mysql2.
+          <code>packages/shared</code> là hợp đồng TypeScript giữa hai bên, không chứa mật khẩu hoặc
+          trạng thái bí mật của phòng.
+        </p>
+        <p>
+          Thiết bị gửi command có requestId và revision. Backend xác thực token, khóa hàng phòng
+          bằng SELECT FOR UPDATE, kiểm tra quyền và luật, cập nhật JSON rồi commit. Sau commit mới
+          broadcast RoomView. Client bỏ snapshot có revision cũ hơn và lấy snapshot định kỳ mỗi 15
+          giây để khôi phục trường hợp bỏ lỡ sự kiện.
+        </p>
+        <table>
+          <tr>
+            <th>Bảng / dữ liệu</th>
+            <th>Nội dung và vai trò</th>
+          </tr>
+          <tr>
+            <td>sessions</td>
+            <td>UUID người chơi, tên, hash SHA-256 của token ngẫu nhiên 256-bit, expires_at.</td>
+          </tr>
+          <tr>
+            <td>default_decks</td>
+            <td>Seed bộ mặc định 50 lá, INSERT IGNORE để không ghi đè nội dung đã có.</td>
+          </tr>
+          <tr>
+            <td>rooms</td>
+            <td>
+              Mã phòng, tên, mật khẩu scrypt có salt, aggregate JSON chứa thành viên/bài/lượt/thống
+              kê, revision, receipt gần nhất và expires_at.
+            </td>
+          </tr>
+          <tr>
+            <td>Bộ nhớ server</td>
+            <td>Socket và trạng thái online. Không phải nguồn sự thật của tiến trình.</td>
+          </tr>
+          <tr>
+            <td>Thiết bị</td>
+            <td>
+              AsyncStorage cho metadata; native SecureStore cho token; web localStorage qua
+              AsyncStorage. Không lưu tiến trình có thẩm quyền.
+            </td>
+          </tr>
+        </table>
+        <p>
+          RoomView chỉ chứa nội dung các slot đã mở; thứ tự bài còn lại và nội dung từng slot úp
+          không gửi xuống client. Nội dung danh mục bộ bài vẫn xem được, như bản cũ.
+        </p>
+        <p>
+          Triển khai hiện tại dùng một instance backend. Muốn scale nhiều instance cần adapter
+          broadcast liên instance; MySQL lock đơn thuần không giải quyết việc gửi sự kiện giữa các
+          process.
+        </p>
+      </section>
+      <section id="acceptance">
+        <h2>5. Kịch bản đã kiểm chứng</h2>
+        <table>
+          <tr>
+            <th>AC</th>
+            <th>Given / When / Then</th>
+            <th>Kết quả</th>
+          </tr>
+          <tr>
+            <td>AC-01</td>
+            <td>Chưa có phiên / nhập tên và vào sảnh / phiên riêng được tạo.</td>
+            <td class="pass">Playwright đạt</td>
+          </tr>
+          <tr>
+            <td>AC-02</td>
+            <td>Có phòng / join sai hoặc đúng mật khẩu / từ chối hoặc tham gia tương ứng.</td>
+            <td class="pass">Integration + UI đạt</td>
+          </tr>
+          <tr>
+            <td>AC-03</td>
+            <td>
+              Chủ phòng ở lobby / thêm, sửa, xóa và lưu bài / bộ phòng thay đổi, bộ phòng khác giữ
+              nguyên.
+            </td>
+            <td class="pass">UI + isolation test đạt</td>
+          </tr>
+          <tr>
+            <td>AC-04</td>
+            <td>
+              Ván đang chơi / người sai lượt bấm rút / server từ chối; đúng lượt thì mọi máy thấy
+              cùng lá.
+            </td>
+            <td class="pass">Unit + integration + UI đạt</td>
+          </tr>
+          <tr>
+            <td>AC-05</td>
+            <td>Cùng revision / hai complete hoặc command trùng / chỉ một thay đổi có hiệu lực.</td>
+            <td class="pass">MySQL concurrency test đạt</td>
+          </tr>
+          <tr>
+            <td>AC-06</td>
+            <td>
+              Lá đang mở / reconnect, reload hoặc restart backend / giữ nguyên lá, lượt và tiến
+              trình.
+            </td>
+            <td class="pass">Integration 2 process + UI đạt</td>
+          </tr>
+          <tr>
+            <td>AC-07</td>
+            <td>
+              Đã hết bài / chủ phòng xáo lại / tăng vòng, giữ thống kê; restart ván xóa thống kê.
+            </td>
+            <td class="pass">Unit + integration đạt</td>
+          </tr>
+          <tr>
+            <td>AC-08</td>
+            <td>Chủ phòng rời / còn thành viên / chuyển quyền; dưới hai người thì kết thúc.</td>
+            <td class="pass">Unit + integration đạt</td>
+          </tr>
+          <tr>
+            <td>AC-09</td>
+            <td>Phòng hết hạn / sync / từ chối truy cập.</td>
+            <td class="pass">Integration đạt</td>
+          </tr>
+          <tr>
+            <td>AC-10</td>
+            <td>Điện thoại cài Expo Go / quét QR và chơi / UI native và realtime hoạt động.</td>
+            <td class="pending">Chưa kiểm thử trên máy thật</td>
+          </tr>
+        </table>
+        <p>
+          Bằng chứng chạy ngày 15/09/2026: unit 7/7; integration 2/2; Playwright 1/1. TypeScript,
+          backend build và export web/Android/iOS đã đạt. Đây không phải kết quả benchmark hay xác
+          nhận APK.
+        </p>
+      </section>
+      <section id="apk">
+        <h2>6. Expo Go và APK</h2>
+        <pre>
+npm start
+# Quét QR bằng Expo Go phù hợp SDK 57.
+# Điện thoại cùng Wi-Fi và phải truy cập được backend ở IP LAN.</pre>
+        <p>
+          Expo Go chạy bundle native từ Metro. Cổng 8081 phục vụ Metro/web; API dùng cổng 3000. Expo
+          tunnel chỉ đưa Metro ra ngoài mạng, không tự đưa backend ra Internet.
+        </p>
+        <pre>
+# Từ apps/mobile, sau khi có tài khoản Expo:
+npx eas-cli login
+npx eas-cli init
+# Cấu hình EXPO_PUBLIC_API_URL cho môi trường EAS, trỏ tới backend thực.
+npx eas-cli build --platform android --profile preview</pre>
+        <p>
+          <code>eas.json</code> có profile preview xuất APK. Preview cho phép HTTP LAN; production
+          yêu cầu URL HTTPS. URL API được nhúng lúc build, thay đổi URL phải build lại.
+          <code>eas whoami</code> hiện trả về <strong>Not logged in</strong>; chưa tạo build EAS
+          hoặc file APK.
+        </p>
+      </section>
+      <section>
+        <h2>Tham chiếu mã nguồn</h2>
+        <table>
+          <tr>
+            <td>apps/api/src/engine.ts</td>
+            <td>Luật và chuyển trạng thái</td>
+          </tr>
+          <tr>
+            <td>apps/api/src/store.ts</td>
+            <td>Schema bootstrap, MySQL transaction, token và mật khẩu</td>
+          </tr>
+          <tr>
+            <td>apps/api/src/gateway.ts</td>
+            <td>Socket events và snapshot công khai</td>
+          </tr>
+          <tr>
+            <td>apps/mobile/src/App.tsx</td>
+            <td>Điều phối UI, khôi phục phiên, đồng bộ</td>
+          </tr>
+          <tr>
+            <td>apps/mobile/src/DeckEditor.tsx / GameBoard.tsx</td>
+            <td>Biên tập bài và bàn chơi</td>
+          </tr>
+          <tr>
+            <td>../drinking_game/src/components/GameBoard.tsx</td>
+            <td>Nguồn luật vòng chơi bản cũ</td>
+          </tr>
+        </table>
+      </section>
+      <footer>
+        <a href="00-state.md">← Trạng thái</a> ·
+        <a href="deployment-plan.html">Kế hoạch GitHub / Linux →</a>
+      </footer>
+    </main>
+  </body>
+</html>
