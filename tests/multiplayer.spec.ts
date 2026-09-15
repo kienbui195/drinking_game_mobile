@@ -8,23 +8,33 @@ test('two independent browsers create, edit, join, play and resume', async ({ br
   const errors: string[] = [];
   for (const page of [host, guest]) page.on('pageerror', (e) => errors.push(e.message));
   async function login(page: Page, name: string) {
-    await page.goto('http://localhost:8081');
+    await page.goto('http://localhost:45102');
     await page.getByLabel('Tên người chơi', { exact: true }).fill(name);
     await page.getByRole('button', { name: 'Vào sảnh →', exact: true }).click();
     await expect(page.getByText('● Trực tuyến', { exact: true })).toBeVisible();
   }
   try {
-    await host.goto('http://localhost:8081');
+    await host.goto('http://localhost:45102');
     await expect(host.getByText('Bắt đầu với tên của bạn')).toBeVisible();
     await host.screenshot({ path: 'test-results/welcome-mobile.png', fullPage: true });
     await login(host, 'Host UI');
     await login(guest, 'Guest UI');
+    const desktopShell = await guest.locator('#root').evaluate((root) => ({
+      width: root.getBoundingClientRect().width,
+      left: root.getBoundingClientRect().left,
+      viewport: window.innerWidth,
+      bodyOverflow: getComputedStyle(document.body).overflow,
+    }));
+    expect(desktopShell.width).toBeLessThanOrEqual(430);
+    expect(desktopShell.left).toBeCloseTo((desktopShell.viewport - desktopShell.width) / 2, 0);
+    expect(desktopShell.bodyOverflow).toBe('hidden');
     await host.getByRole('button', { name: '+ Tạo phòng mới', exact: true }).click();
     await host.getByLabel('Tên phòng', { exact: true }).fill('Phòng kiểm thử UI');
     await host.getByLabel('Mật khẩu phòng (ít nhất 4 ký tự)', { exact: true }).fill('ui-test-123');
     await host.getByRole('button', { name: 'Tạo phòng', exact: true }).click();
-    await expect(host.getByText(/PHÒNG #[A-F0-9]{6}/)).toBeVisible();
-    const code = (await host.getByText(/PHÒNG #[A-F0-9]{6}/).innerText()).split('#')[1];
+    const roomCode = host.getByLabel(/^Mã phòng [A-F0-9]{6}$/);
+    await expect(roomCode).toBeVisible();
+    const code = (await roomCode.innerText()).replace('#', '').trim();
     await host.getByRole('button', { name: 'Chỉnh bộ bài · 50 lá', exact: true }).click();
     await host.getByRole('button', { name: 'Sửa', exact: true }).first().click();
     await host.getByLabel('Tên lá bài', { exact: true }).fill('Lá bài đã sửa UI');
@@ -51,7 +61,10 @@ test('two independent browsers create, edit, join, play and resume', async ({ br
     await expect(host.getByText('🟢 Guest UI', { exact: true })).toBeVisible();
     await host.screenshot({ path: 'test-results/lobby-mobile.png', fullPage: true });
     await host.getByRole('button', { name: 'Bắt đầu ván chơi', exact: true }).click();
-    await expect(guest.getByRole('button', { name: 'Lá bài 1', exact: true })).toBeDisabled();
+    await expect(
+      guest.getByText('Vuốt để xem các lá. Chỉ người đang ở lượt mới lật được bài.'),
+    ).toBeVisible();
+    // Băng chuyền chỉ lật lá đang ở chính giữa; lá 1 là lá mặc định ở giữa khi vào vòng mới.
     await host.getByRole('button', { name: 'Lá bài 1', exact: true }).click();
     await expect(
       host.getByRole('button', { name: 'Đã hoàn thành thử thách', exact: true }),
@@ -64,10 +77,16 @@ test('two independent browsers create, edit, join, play and resume', async ({ br
       host.getByRole('button', { name: 'Đã hoàn thành thử thách', exact: true }),
     ).toBeVisible();
     await host.getByRole('button', { name: 'Đã hoàn thành thử thách', exact: true }).click();
-    await expect(guest.getByText('Đến lượt bạn rồi!')).toBeVisible();
+    await expect(guest.getByText('Đến lượt bạn!')).toBeVisible();
+    // Bấm lần đầu chỉ cuốn lá 2 vào giữa, bấm lần thứ hai mới lật.
+    await guest.getByRole('button', { name: 'Lá bài 2', exact: true }).click();
+    await expect(guest.getByRole('button', { name: 'Lá bài 2', exact: true })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     await guest.getByRole('button', { name: 'Lá bài 2', exact: true }).click();
     await guest.getByRole('button', { name: 'Đã hoàn thành thử thách', exact: true }).click();
-    await expect(host.getByText(/VÒNG 2 ·/)).toBeVisible();
+    await expect(host.getByText(/^V2 · \d+ lá$/)).toBeVisible();
     await guest.getByRole('button', { name: 'Rời phòng', exact: true }).click();
     await expect(host.getByText('Hẹn ván tiếp theo ✨')).toBeVisible();
     await host.getByRole('button', { name: 'Rời phòng', exact: true }).click();

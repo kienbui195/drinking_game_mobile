@@ -8,12 +8,23 @@ import {
 } from 'node:crypto';
 import { promisify } from 'node:util';
 import mysql, { type Pool, type RowDataPacket } from 'mysql2/promise';
-import type { Card, Command, GameState, RoomSummary } from '@chamly/shared';
+import {
+  defaultPackId,
+  type Card,
+  type Command,
+  type GameState,
+  type RoomSummary,
+} from '@chamly/shared';
 import { applyAction, ensure, initialState, newPlayer } from './engine';
-import { DEFAULT_CARDS } from './default-cards';
+import { PACK_DECKS } from './packs';
 
 const scrypt = promisify(scryptCallback);
 const ttl = 24 * 60 * 60 * 1000;
+// Phòng một người vẫn có thể đang được chủ phòng ngồi soạn bộ bài, nên giữ đủ lâu để làm việc
+// đó rồi mới thu hồi tài nguyên.
+export const soloTtl = 10 * 60 * 1000;
+export const lifespan = (state: GameState) =>
+  state.players.filter((p) => p.active).length <= 1 ? soloTtl : ttl;
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const decode = <T>(value: T | string): T => (typeof value === 'string' ? JSON.parse(value) : value);
 export interface Identity {
@@ -41,11 +52,13 @@ const roomFromRow = (r: RowDataPacket): StoredRoom => ({
 @Injectable()
 export class Store implements OnModuleInit, OnModuleDestroy {
   pool!: Pool;
+  /** Gateway gắn callback này để báo cho client biết phòng vừa bị thu hồi. */
+  onExpired?: (ids: string[]) => void;
   private cleanup?: ReturnType<typeof setInterval>;
   async onModuleInit() {
     this.pool = mysql.createPool({
       host: process.env.DB_HOST ?? '127.0.0.1',
-      port: Number(process.env.DB_PORT ?? 3307),
+      port: Number(process.env.DB_PORT ?? 45101),
       user: process.env.MYSQL_USER ?? 'chamly',
       password: process.env.MYSQL_PASSWORD ?? 'local-app-change-me',
       database: process.env.MYSQL_DATABASE ?? 'chamly',
@@ -63,13 +76,14 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       id CHAR(6) PRIMARY KEY, name VARCHAR(60) NOT NULL, password_hash VARCHAR(200) NOT NULL,
       state JSON NOT NULL, revision INT NOT NULL DEFAULT 0, receipts JSON NOT NULL,
       expires_at BIGINT NOT NULL, create_key CHAR(64) NOT NULL UNIQUE, INDEX(expires_at))`);
-    await this.pool.execute('INSERT IGNORE INTO default_decks (id, cards) VALUES (?, ?)', [
-      'default-50-v1',
-      JSON.stringify(DEFAULT_CARDS),
-    ]);
+    for (const [id, cards] of Object.entries(PACK_DECKS))
+      await this.pool.execute('INSERT IGNORE INTO default_decks (id, cards) VALUES (?, ?)', [
+        id,
+        JSON.stringify(cards),
+      ]);
     this.cleanup = setInterval(() => {
       void this.prune().catch(console.error);
-    }, 60_000);
+    }, 10_000);
     this.cleanup.unref();
     await this.prune();
   }
@@ -77,9 +91,17 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     clearInterval(this.cleanup);
     await this.pool.end();
   }
-  async prune() {
-    await this.pool.execute('DELETE FROM rooms WHERE expires_at < ?', [Date.now()]);
-    await this.pool.execute('DELETE FROM sessions WHERE expires_at < ?', [Date.now()]);
+  async prune(): Promise<string[]> {
+    const now = Date.now();
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      'SELECT id FROM rooms WHERE expires_at < ?',
+      [now],
+    );
+    const ids = rows.map((r) => r.id as string);
+    if (ids.length) await this.pool.execute('DELETE FROM rooms WHERE expires_at < ?', [now]);
+    await this.pool.execute('DELETE FROM sessions WHERE expires_at < ?', [now]);
+    if (ids.length) this.onExpired?.(ids);
+    return ids;
   }
   async createIdentity(name: string) {
     const token = randomBytes(32).toString('hex');
@@ -105,13 +127,20 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     ensure(rows[0], 'UNAUTHORIZED', 'Phiên đã hết hạn. Hãy nhập lại tên.');
     return { id: rows[0].id, name: rows[0].name };
   }
-  async defaultDeck(): Promise<Card[]> {
-    const [rows] = await this.pool.query<RowDataPacket[]>(
-      "SELECT cards FROM default_decks WHERE id = 'default-50-v1'",
+  async defaultDeck(packId = defaultPackId): Promise<Card[]> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      'SELECT cards FROM default_decks WHERE id = ?',
+      [PACK_DECKS[packId] ? packId : defaultPackId],
     );
     return decode(rows[0].cards);
   }
-  async create(identity: Identity, name: string, password: string, requestId: string) {
+  async create(
+    identity: Identity,
+    name: string,
+    password: string,
+    requestId: string,
+    packId = defaultPackId,
+  ) {
     const key = hash(`${identity.id}:${requestId}`);
     const [existing] = await this.pool.execute<RowDataPacket[]>(
       'SELECT * FROM rooms WHERE create_key = ? AND expires_at > ?',
@@ -128,14 +157,19 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     }
     const salt = randomBytes(16).toString('hex');
     const derived = (await scrypt(password, salt, 32)) as Buffer;
+    const initial = initialState(
+      newPlayer(identity.id, identity.name),
+      await this.defaultDeck(packId),
+      packId,
+    );
     const room: StoredRoom = {
       id: randomBytes(3).toString('hex').toUpperCase(),
       name,
       password: `${salt}:${derived.toString('hex')}`,
-      state: initialState(newPlayer(identity.id, identity.name), await this.defaultDeck()),
+      state: initial,
       revision: 0,
       receipts: [],
-      expiresAt: Date.now() + ttl,
+      expiresAt: Date.now() + lifespan(initial),
     };
     await this.pool.execute('INSERT INTO rooms VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
       room.id,
@@ -149,6 +183,33 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     ]);
     return room;
   }
+  /** Số phiên đăng nhập còn hiệu lực; dùng cho bảng quản trị. */
+  async countSessions(): Promise<number> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      'SELECT COUNT(*) AS total FROM sessions WHERE expires_at > ?',
+      [Date.now()],
+    );
+    return Number(rows[0]?.total ?? 0);
+  }
+  /** Toàn bộ phòng còn hiệu lực, kèm state đầy đủ. */
+  async allRooms(): Promise<StoredRoom[]> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>(
+      'SELECT * FROM rooms WHERE expires_at > ? ORDER BY expires_at DESC LIMIT 200',
+      [Date.now()],
+    );
+    return rows.map(roomFromRow);
+  }
+  async deleteRoom(id: string): Promise<void> {
+    await this.pool.execute('DELETE FROM rooms WHERE id = ?', [id]);
+  }
+  async renameRoom(id: string, name: string): Promise<StoredRoom> {
+    await this.pool.execute('UPDATE rooms SET name = ? WHERE id = ?', [name, id]);
+    return this.read(id);
+  }
+  /** Cho phép gateway chỉnh state phòng bằng quyền quản trị, vẫn đi qua khoá giao dịch. */
+  async adminMutate(id: string, update: (room: StoredRoom) => void): Promise<StoredRoom> {
+    return this.mutate(id, update);
+  }
   async read(id: string): Promise<StoredRoom> {
     const [rows] = await this.pool.execute<RowDataPacket[]>(
       'SELECT * FROM rooms WHERE id = ? AND expires_at > ?',
@@ -161,6 +222,7 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     const [rows] = await this.pool.execute<RowDataPacket[]>(
       `SELECT id, name,
       JSON_UNQUOTE(JSON_EXTRACT(state, '$.phase')) AS phase,
+      JSON_UNQUOTE(JSON_EXTRACT(state, '$.packId')) AS pack_id,
       JSON_EXTRACT(state, '$.players') AS players
       FROM rooms WHERE expires_at > ? ORDER BY expires_at DESC LIMIT 100`,
       [Date.now()],
@@ -170,6 +232,8 @@ export class Store implements OnModuleInit, OnModuleDestroy {
         id: r.id,
         name: r.name,
         phase: r.phase,
+        // Phòng tạo trước khi có chủ đề không mang packId; coi như chủ đề mặc định.
+        packId: r.pack_id ?? defaultPackId,
         playerCount: decode<GameState['players']>(r.players).filter((p) => p.active).length,
       }))
       .filter((r) => r.playerCount > 0);
@@ -238,7 +302,7 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       const before = JSON.stringify(room.state);
       update(room);
       if (before !== JSON.stringify(room.state)) room.revision++;
-      room.expiresAt = Date.now() + ttl;
+      room.expiresAt = Date.now() + lifespan(room.state);
       await conn.execute(
         'UPDATE rooms SET state = ?, revision = ?, receipts = ?, expires_at = ? WHERE id = ?',
         [

@@ -4,8 +4,8 @@
   "private": true,
   "main": "index.ts",
   "scripts": {
-    "start": "expo start",
-    "web": "expo start --web",
+    "start": "expo start --port 45103",
+    "web": "expo start --web --port 45102",
     "typecheck": "tsc --noEmit",
     "export:web": "expo export --platform web",
     "build:apk": "npx eas-cli build --platform android --profile preview"
@@ -15,6 +15,7 @@
     "@expo/metro-runtime": "~57.0.15",
     "@react-native-async-storage/async-storage": "2.2.0",
     "expo": "~57.0.22",
+    "expo-audio": "^57.0.5",
     "expo-build-properties": "~57.0.17",
     "expo-crypto": "~57.0.3",
     "expo-secure-store": "~57.0.4",

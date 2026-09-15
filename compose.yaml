@@ -8,7 +8,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-chamly}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-local-app-change-me}
     ports:
-      - '127.0.0.1:${DB_PORT:-3307}:3306'
+      - '127.0.0.1:${DB_PORT:-45101}:3306'
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
@@ -34,10 +34,12 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE:-chamly}
       MYSQL_USER: ${MYSQL_USER:-chamly}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-local-app-change-me}
-      API_PORT: 3000
-      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:8081,http://localhost:8082}
+      API_PORT: 45100
+      ADMIN_ROOM_NAME: ${ADMIN_ROOM_NAME:-adminserverday}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:45102,http://localhost:45103}
     ports:
-      - '${API_PORT:-3000}:3000'
+      - '${API_PORT:-45100}:45100'
     depends_on:
       db:
         condition: service_healthy
@@ -47,7 +49,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://localhost:45100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 10s
       timeout: 5s

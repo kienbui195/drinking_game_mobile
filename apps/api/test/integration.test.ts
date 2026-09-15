@@ -7,7 +7,7 @@ import { Store } from '../src/store';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 
-const url = process.env.TEST_API_URL ?? 'http://localhost:3000';
+const url = process.env.TEST_API_URL ?? 'http://localhost:45100';
 function rpc<T>(socket: Socket, event: string, data: unknown = {}): Promise<Reply<T>> {
   return new Promise((resolve, reject) =>
     socket
@@ -170,12 +170,12 @@ test(
   'a fresh backend process restores a committed in-progress game from MySQL',
   { timeout: 45_000 },
   async (t) => {
-    const localUrl = 'http://127.0.0.1:3011';
+    const localUrl = 'http://127.0.0.1:45105';
     let child: ChildProcess | undefined;
     let logs = '';
     async function start() {
       child = spawn(process.execPath, ['dist/apps/api/src/main.js'], {
-        env: { ...process.env, API_PORT: '3011' },
+        env: { ...process.env, API_PORT: '45105' },
         stdio: ['ignore', 'pipe', 'pipe'],
       });
       child.stdout?.on('data', (chunk) => {

@@ -13,6 +13,7 @@
 ## Nhật ký duyệt
 - User: “chot cac phuong an ban de xuat, bat dau trien khai” — chốt Expo/NativeWind, NestJS/Socket.IO, MySQL 8.4, Docker Compose; cho phép triển khai phương án đã trao đổi.
 - User: “phan tai lieu cua project nay co the nam luon trong project, khong can dua vao MyDocs/” — lưu tài liệu trong dự án.
+- User yêu cầu web chỉ dùng bố cục mobile, nằm gọn trong viewport; vùng cần thêm không gian dùng scroll view hoặc carousel, không tạo biến thể tablet/desktop.
 - Chưa có duyệt riêng cho các quy ước MVP dưới đây; đây là mặc định triển khai, có thể điều chỉnh.
 
 ## Quy ước MVP
@@ -32,9 +33,10 @@
 - TypeScript đạt; export web, Android và iOS đạt. Export native chưa phải APK.
 - Playwright hai trình duyệt độc lập đã đạt (1/1), bao gồm thêm/sửa/xóa bài, sai mật khẩu, lượt chơi và reload.
 - Integration đã đạt 2/2: thêm test dừng và khởi động backend process mới, khôi phục lá đang mở từ MySQL.
-- Expo dev server đã bật ở cổng 8081; backend cổng 3000. LAN hiện tại 192.168.1.239.
+- Dải port local riêng: API 45100, MySQL host 45101, Expo Web 45102, Expo Go 45103 và production web/Caddy 45104. LAN hiện tại 192.168.1.239.
 - Tài liệu: [Triển khai & chạy thử](implementation.html), [Kế hoạch GitHub và Linux](deployment-plan.html).
 - Đã chuẩn bị compose.production.yaml, Dockerfile web và Caddyfile; kiểm tra compose config và build image web đã đạt. Chưa deploy VPS thật.
+- Web đã khóa trong phone canvas tối đa 430px ở mọi viewport; danh sách người chơi, lá úp và nhóm bài dùng carousel ngang. Typecheck, unit 7/7, web export và Playwright 1/1 đạt.
 
 ## Chưa xác minh / còn nợ
 - Expo Go trên điện thoại thật; APK qua EAS cần tài khoản Expo và địa chỉ backend truy cập được. `eas whoami` trả về `Not logged in`, chưa có APK.

@@ -4,7 +4,7 @@ import { Platform } from 'react-native';
 import { io, type Socket } from 'socket.io-client';
 import type { Reply, Session } from '@chamly/shared';
 
-export const apiUrl = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000').replace(
+export const apiUrl = (process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:45100').replace(
   /\/$/,
   '',
 );

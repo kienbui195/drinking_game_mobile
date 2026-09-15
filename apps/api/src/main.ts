@@ -46,6 +46,6 @@ async function bootstrap() {
     },
   );
   app.enableShutdownHooks();
-  await app.listen(Number(process.env.API_PORT ?? 3000), '0.0.0.0');
+  await app.listen(Number(process.env.API_PORT ?? 45100), '0.0.0.0');
 }
 void bootstrap();

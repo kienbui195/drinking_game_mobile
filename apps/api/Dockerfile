@@ -13,6 +13,14 @@ ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/apps/api/dist ./apps/api/dist
+# node_modules mang theo symlink workspace trỏ tới packages/shared (không có trong image này).
+# Thay bằng bản JavaScript đã biên dịch, vì API import giá trị runtime từ @chamly/shared.
+RUN rm -rf node_modules/@chamly/shared \
+  && mkdir -p node_modules/@chamly/shared \
+  && cp -r apps/api/dist/packages/shared/src/. node_modules/@chamly/shared/ \
+  && printf '{"name":"@chamly/shared","version":"0.1.0","main":"index.js"}' \
+     > node_modules/@chamly/shared/package.json \
+  && chown -R node:node node_modules/@chamly/shared
 USER node
 EXPOSE 3000
 CMD ["node", "apps/api/dist/apps/api/src/main.js"]

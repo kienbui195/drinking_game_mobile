@@ -31,13 +31,15 @@ services:
     init: true
     environment:
       NODE_ENV: production
-      API_PORT: 3000
+      API_PORT: 45100
       DB_HOST: db
       DB_PORT: 3306
       MYSQL_DATABASE: ${MYSQL_DATABASE:-chamly}
       MYSQL_USER: ${MYSQL_USER:-chamly}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
       CORS_ORIGINS: https://${APP_DOMAIN:?Set APP_DOMAIN}
+      ADMIN_ROOM_NAME: ${ADMIN_ROOM_NAME:-adminserverday}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}
     depends_on:
       db: { condition: service_healthy }
     healthcheck:
@@ -46,7 +48,7 @@ services:
           'CMD',
           'node',
           '-e',
-          "fetch('http://localhost:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://localhost:45100/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 10s
       timeout: 5s
@@ -65,7 +67,7 @@ services:
       APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN}
       API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
-    ports: ['5001:80']
+    ports: ['127.0.0.1:${WEB_PORT:-45104}:80']
     volumes:
       - caddy_data:/data
       - caddy_config:/config

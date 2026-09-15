@@ -10,20 +10,42 @@ import {
   type OnGatewayInit,
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
+import { timingSafeEqual } from 'node:crypto';
 import { z, ZodError } from 'zod';
-import type { Reply, RoomView } from '@chamly/shared';
-import { GameError, ensure } from './engine';
+import {
+  defaultPackId,
+  type AdminOverview,
+  type AdminRoom,
+  type Reply,
+  type RoomView,
+} from '@chamly/shared';
+import { applyAction, GameError, ensure } from './engine';
 import { Store, type Identity, type StoredRoom } from './store';
 import { commandSchema, createSchema, joinSchema } from './validation';
 
 export const allowedOrigins = () =>
-  (process.env.CORS_ORIGINS ?? 'http://localhost:8081,http://localhost:8082')
+  (process.env.CORS_ORIGINS ?? 'http://localhost:45102,http://localhost:45103')
     .split(',')
     .map((s) => s.trim());
 export function originAllowed(origin?: string) {
   return !origin || allowedOrigins().includes(origin);
 }
 const roomIdSchema = z.object({ roomId: z.string().regex(/^[A-F0-9]{6}$/) });
+const adminRoomSchema = z.object({ roomId: z.string().regex(/^[A-F0-9]{6}$/) });
+const adminKickSchema = adminRoomSchema.extend({ playerId: z.string().max(80) });
+const adminRenameSchema = adminRoomSchema.extend({ name: z.string().trim().min(1).max(60) });
+const adminNoticeSchema = z.object({ message: z.string().trim().min(1).max(300) });
+/** Tên phòng dùng làm cổng vào trang quản trị, và mật khẩu tương ứng. */
+export const adminRoomName = () => process.env.ADMIN_ROOM_NAME ?? 'adminserverday';
+export const adminPassword = () => process.env.ADMIN_PASSWORD ?? '';
+/** So sánh không phụ thuộc độ dài chuỗi, tránh rò rỉ thông tin qua thời gian phản hồi. */
+function passwordMatches(input: string): boolean {
+  const expected = adminPassword();
+  if (!expected) return false;
+  const a = Buffer.from(input);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
 @WebSocketGateway({
   cors: {
     origin: (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) =>
@@ -40,6 +62,19 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   private logger = new Logger(GameGateway.name);
   constructor(@Inject(Store) private readonly store: Store) {}
   afterInit(server: Server) {
+    // Phòng hết hạn bị xóa bởi tiến trình dọn dẹp của Store; client cần biết ngay để rời phòng
+    // thay vì chờ lần đồng bộ định kỳ kế tiếp thất bại.
+    this.store.onExpired = (ids) => {
+      for (const id of ids) {
+        server.to(id).emit('room:expired');
+        for (const peer of server.sockets.sockets.values()) {
+          if (peer.data.roomId === id) {
+            void peer.leave(id);
+            peer.data.roomId = undefined;
+          }
+        }
+      }
+    };
     server.use(async (socket, next) => {
       try {
         socket.data.identity = await this.store.authenticate(socket.handshake.auth.token);
@@ -66,12 +101,17 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       id: room.id,
       name: room.name,
       phase: s.phase,
+      packId: s.packId ?? defaultPackId,
       revision: room.revision,
       expiresAt: room.expiresAt,
       serverTime: Date.now(),
       playerCount: s.players.filter((p) => p.active).length,
       hostId: s.hostId,
-      players: s.players.map((p) => ({ ...p, online: p.active && online.has(p.id) })),
+      players: s.players.map((p) => ({
+        ...p,
+        pouch: p.pouch ?? [],
+        online: p.active && online.has(p.id),
+      })),
       deck: s.deck,
       remainingCount: s.remaining.length,
       slots: s.slots.map((slot) => ({
@@ -80,7 +120,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       })),
       round: s.round,
       currentPlayerId: s.phase === 'playing' ? (s.players[s.turn]?.id ?? null) : null,
-      revealed: s.revealed === null ? null : s.slots[s.revealed].card,
+      revealed: s.pouchCard ?? (s.revealed === null ? null : s.slots[s.revealed].card),
       timerEndsAt: s.timerEndsAt,
       history: s.history,
     };
@@ -133,16 +173,31 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     return this.run(socket, () => this.store.list());
   }
   @SubscribeMessage('deck:default')
-  deck(@ConnectedSocket() socket: Socket) {
-    return this.run(socket, () => this.store.defaultDeck());
+  deck(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
+    const packId =
+      typeof body === 'object' && body ? (body as { packId?: string }).packId : undefined;
+    return this.run(socket, () => this.store.defaultDeck(packId));
   }
   @SubscribeMessage('room:create')
   create(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
     return this.run(socket, async (identity) => {
       const input = createSchema.parse(body);
+      // Cổng vào trang quản trị: đúng tên phòng quy ước và đúng mật khẩu quản trị thì không
+      // tạo phòng mà cấp quyền quản trị cho chính kết nối này.
+      if (input.name.toLowerCase() === adminRoomName().toLowerCase()) {
+        ensure(passwordMatches(input.password), 'WRONG_PASSWORD', 'Mật khẩu phòng chưa đúng.');
+        socket.data.admin = true;
+        return { admin: true as const };
+      }
       return this.attach(
         socket,
-        await this.store.create(identity, input.name, input.password, input.requestId),
+        await this.store.create(
+          identity,
+          input.name,
+          input.password,
+          input.requestId,
+          input.packId,
+        ),
       );
     });
   }
@@ -151,6 +206,133 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     return this.run(socket, async (identity) => {
       const input = joinSchema.parse(body);
       return this.attach(socket, await this.store.join(input.roomId, identity, input.password));
+    });
+  }
+  private requireAdmin(socket: Socket) {
+    ensure(socket.data.admin === true, 'FORBIDDEN', 'Cần quyền quản trị.');
+  }
+  private adminRoomInfo(room: StoredRoom): AdminRoom {
+    const members = this.server.sockets.adapter.rooms.get(room.id) ?? new Set<string>();
+    const online = new Set(
+      [...members].map((id) => this.server.sockets.sockets.get(id)?.data.identity?.id),
+    );
+    const s = room.state;
+    return {
+      id: room.id,
+      name: room.name,
+      packId: s.packId ?? defaultPackId,
+      phase: s.phase,
+      round: s.round,
+      remainingCount: s.remaining.length,
+      deckSize: s.deck.length,
+      expiresAt: room.expiresAt,
+      hostId: s.hostId,
+      players: s.players.map((p) => ({
+        id: p.id,
+        name: p.name,
+        active: p.active,
+        online: p.active && online.has(p.id),
+        pouch: p.pouch?.length ?? 0,
+      })),
+    };
+  }
+  @SubscribeMessage('admin:overview')
+  overview(@ConnectedSocket() socket: Socket) {
+    return this.run(socket, async (): Promise<AdminOverview> => {
+      this.requireAdmin(socket);
+      const rooms = (await this.store.allRooms()).map((room) => this.adminRoomInfo(room));
+      const identities = new Set<string>();
+      for (const peer of this.server.sockets.sockets.values())
+        if (peer.data.identity?.id) identities.add(peer.data.identity.id);
+      const usage = new Map<string, { rooms: number; players: number }>();
+      for (const room of rooms) {
+        const entry = usage.get(room.packId) ?? { rooms: 0, players: 0 };
+        entry.rooms++;
+        entry.players += room.players.filter((p) => p.active).length;
+        usage.set(room.packId, entry);
+      }
+      return {
+        serverTime: Date.now(),
+        connections: this.server.sockets.sockets.size,
+        onlinePlayers: identities.size,
+        sessions: await this.store.countSessions(),
+        rooms,
+        packUsage: [...usage].map(([packId, v]) => ({ packId, ...v })),
+      };
+    });
+  }
+  @SubscribeMessage('admin:deleteRoom')
+  adminDelete(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
+    return this.run(socket, async () => {
+      this.requireAdmin(socket);
+      const { roomId } = adminRoomSchema.parse(body);
+      await this.store.deleteRoom(roomId);
+      this.server.to(roomId).emit('room:expired');
+      for (const peer of this.server.sockets.sockets.values())
+        if (peer.data.roomId === roomId) {
+          await peer.leave(roomId);
+          peer.data.roomId = undefined;
+        }
+      return { ok: true };
+    });
+  }
+  @SubscribeMessage('admin:renameRoom')
+  adminRename(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
+    return this.run(socket, async () => {
+      this.requireAdmin(socket);
+      const { roomId, name } = adminRenameSchema.parse(body);
+      await this.store.renameRoom(roomId, name);
+      await this.publish(roomId);
+      return { ok: true };
+    });
+  }
+  @SubscribeMessage('admin:kickPlayer')
+  adminKick(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
+    return this.run(socket, async () => {
+      this.requireAdmin(socket);
+      const { roomId, playerId } = adminKickSchema.parse(body);
+      await this.store.adminMutate(roomId, (room) => {
+        const target = room.state.players.find((p) => p.id === playerId && p.active);
+        ensure(target, 'NOT_MEMBER', 'Người chơi không còn trong phòng.');
+        // Dùng đúng đường đi của hành động rời phòng để chuyển chủ phòng và lượt cho chuẩn.
+        applyAction(room.state, playerId, { type: 'leave' });
+      });
+      await this.publish(roomId);
+      for (const peer of this.server.sockets.sockets.values())
+        if (peer.data.roomId === roomId && peer.data.identity?.id === playerId) {
+          await peer.leave(roomId);
+          peer.data.roomId = undefined;
+          peer.emit('room:left');
+        }
+      return { ok: true };
+    });
+  }
+  @SubscribeMessage('admin:endGame')
+  adminEnd(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
+    return this.run(socket, async () => {
+      this.requireAdmin(socket);
+      const { roomId } = adminRoomSchema.parse(body);
+      await this.store.adminMutate(roomId, (room) => {
+        applyAction(room.state, room.state.hostId, { type: 'end' });
+      });
+      await this.publish(roomId);
+      return { ok: true };
+    });
+  }
+  @SubscribeMessage('admin:notice')
+  adminNotice(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
+    return this.run(socket, async () => {
+      this.requireAdmin(socket);
+      const { message } = adminNoticeSchema.parse(body);
+      this.server.emit('server:notice', message);
+      return { ok: true };
+    });
+  }
+  @SubscribeMessage('admin:prune')
+  adminPrune(@ConnectedSocket() socket: Socket) {
+    return this.run(socket, async () => {
+      this.requireAdmin(socket);
+      return { removed: (await this.store.prune()).length };
     });
   }
   @SubscribeMessage('room:sync')

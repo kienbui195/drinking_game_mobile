@@ -346,6 +346,9 @@ const rows: [string, Category, string, string, number, number?][] = [
     1,
   ],
 ];
+// Lá Quyền lực và May mắn là những lá có thể để dành: nội dung của chúng dùng được ở vòng sau
+// mà không mất ý nghĩa, nên được phép cất vào túi thần kỳ.
+const KEEPABLE: Category[] = ['power', 'lucky'];
 export const DEFAULT_CARDS: Card[] = rows.map(
   ([title, category, description, penalty, drinksCount, timerSeconds], i) => ({
     id: `card-${i + 1}`,
@@ -354,6 +357,7 @@ export const DEFAULT_CARDS: Card[] = rows.map(
     description,
     penalty,
     drinksCount,
+    ...(KEEPABLE.includes(category) ? { keepable: true } : {}),
     ...(timerSeconds ? { hasTimer: true, timerSeconds } : {}),
   }),
 );

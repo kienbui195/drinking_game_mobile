@@ -58,7 +58,7 @@ export function Field({ label, ...props }: TextInputProps & { label: string }) {
   );
 }
 export function Panel({ children }: PropsWithChildren) {
-  return <View className="bg-panel border border-slate-700 rounded-3xl p-5 gap-4">{children}</View>;
+  return <View className="bg-panel border border-slate-700 rounded-3xl p-4 gap-3">{children}</View>;
 }
 export function Heading({ children }: PropsWithChildren) {
   return <Text className="text-white text-xl font-bold">{children}</Text>;

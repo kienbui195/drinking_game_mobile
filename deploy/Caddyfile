@@ -2,15 +2,15 @@
     encode zstd gzip
 
     handle /socket.io/* {
-        reverse_proxy api:3000
+        reverse_proxy api:45100
     }
 
     handle /health {
-        reverse_proxy api:3000
+        reverse_proxy api:45100
     }
 
     handle /sessions {
-        reverse_proxy api:3000
+        reverse_proxy api:45100
     }
 
     handle {

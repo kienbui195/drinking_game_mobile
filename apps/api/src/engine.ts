@@ -1,5 +1,12 @@
 import { randomInt } from 'node:crypto';
-import type { Action, Card, GameState, Player } from '@chamly/shared';
+import {
+  defaultPackId,
+  pouchLimit,
+  type Action,
+  type Card,
+  type GameState,
+  type Player,
+} from '@chamly/shared';
 
 export class GameError extends Error {
   constructor(
@@ -13,11 +20,20 @@ export function ensure(condition: unknown, code: string, message: string): asser
   if (!condition) throw new GameError(code, message);
 }
 export function newPlayer(id: string, name: string): Player {
-  return { id, name, active: true, drinksTaken: 0, cardsDrawnCount: 0, challengesCompleted: 0 };
+  return {
+    id,
+    name,
+    active: true,
+    drinksTaken: 0,
+    cardsDrawnCount: 0,
+    challengesCompleted: 0,
+    pouch: [],
+  };
 }
-export function initialState(player: Player, deck: Card[]): GameState {
+export function initialState(player: Player, deck: Card[], packId = defaultPackId): GameState {
   return {
     phase: 'lobby',
+    packId,
     hostId: player.id,
     players: [player],
     deck: structuredClone(deck),
@@ -26,6 +42,7 @@ export function initialState(player: Player, deck: Card[]): GameState {
     round: 0,
     turn: 0,
     revealed: null,
+    pouchCard: null,
     timerEndsAt: null,
     history: [],
   };
@@ -41,6 +58,7 @@ function shuffle(cards: Card[]): Card[] {
 function deal(s: GameState) {
   const count = s.players.filter((p) => p.active).length;
   s.revealed = null;
+  s.pouchCard = null;
   s.timerEndsAt = null;
   if (count < 2) {
     s.phase = 'ended';
@@ -57,6 +75,7 @@ function deal(s: GameState) {
 }
 function advance(s: GameState) {
   s.revealed = null;
+  s.pouchCard = null;
   s.timerEndsAt = null;
   const next = s.players.findIndex((p, i) => p.active && i > s.turn);
   if (s.players.filter((p) => p.active).length < 2) s.phase = 'ended';
@@ -70,6 +89,10 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
   const playing = () => ensure(s.phase === 'playing', 'BAD_PHASE', 'Ván chơi chưa ở lượt rút bài.');
   const ownTurn = () =>
     ensure(s.players[s.turn]?.id === actorId, 'NOT_YOUR_TURN', 'Chưa đến lượt của bạn.');
+  // Lá đang xử lý có thể là lá vừa lật trong vòng, hoặc lá lấy ra từ túi thần kỳ.
+  const openCard = () => s.pouchCard ?? (s.revealed === null ? null : s.slots[s.revealed].card);
+  // Trạng thái cũ lưu trong DB chưa có trường này; coi như túi rỗng.
+  const pouchOf = (p: Player) => (p.pouch ??= []);
   switch (action.type) {
     case 'saveDeck':
       host();
@@ -105,7 +128,11 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
     case 'pick': {
       playing();
       ownTurn();
-      ensure(s.revealed === null, 'ALREADY_REVEALED', 'Hãy hoàn thành lá đang mở.');
+      ensure(
+        s.revealed === null && s.pouchCard === null,
+        'ALREADY_REVEALED',
+        'Hãy hoàn thành lá đang mở.',
+      );
       const slot = s.slots[action.slot];
       ensure(slot && !slot.pickedBy, 'BAD_SLOT', 'Lá bài không còn khả dụng.');
       slot.pickedBy = actorId;
@@ -115,8 +142,8 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
     case 'timer': {
       playing();
       ownTurn();
-      ensure(s.revealed !== null, 'NO_CARD', 'Chưa có lá được mở.');
-      const card = s.slots[s.revealed].card;
+      const card = openCard();
+      ensure(card, 'NO_CARD', 'Chưa có lá được mở.');
       ensure(card.hasTimer && card.timerSeconds, 'NO_TIMER', 'Lá này không có đồng hồ.');
       ensure(s.timerEndsAt === null, 'TIMER_STARTED', 'Đồng hồ đã bắt đầu.');
       s.timerEndsAt = now + card.timerSeconds * 1000;
@@ -125,14 +152,17 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
     case 'complete': {
       playing();
       ownTurn();
-      ensure(s.revealed !== null, 'NO_CARD', 'Chưa có lá được mở.');
+      const card = openCard();
+      ensure(card, 'NO_CARD', 'Chưa có lá được mở.');
       ensure(
         Number.isInteger(action.drinks) && action.drinks >= 0 && action.drinks <= 20,
         'BAD_DRINKS',
         'Số ngụm cần từ 0 đến 20.',
       );
-      const card = s.slots[s.revealed].card;
-      actor.drinksTaken += action.drinks;
+      const fromPouch = s.pouchCard !== null;
+      // Hoàn thành thử thách là thoát phạt: chỉ người bỏ qua mới bị tính số ngụm.
+      const drinks = action.completed ? 0 : action.drinks;
+      actor.drinksTaken += drinks;
       actor.cardsDrawnCount++;
       actor.challengesCompleted += Number(action.completed);
       s.history.push({
@@ -141,10 +171,49 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
         card,
         round: s.round,
         at: now,
-        drinks: action.drinks,
+        drinks,
         completed: action.completed,
+        ...(fromPouch ? { fromPouch: true } : {}),
       });
       advance(s);
+      break;
+    }
+    case 'stash': {
+      playing();
+      ownTurn();
+      ensure(s.pouchCard === null, 'BAD_CARD', 'Lá lấy từ túi không cất lại được.');
+      const card = openCard();
+      ensure(card, 'NO_CARD', 'Chưa có lá được mở.');
+      ensure(card.keepable, 'NOT_KEEPABLE', 'Lá này phải xử lý ngay trong lượt.');
+      const pouch = pouchOf(actor);
+      ensure(pouch.length < pouchLimit, 'POUCH_FULL', `Túi thần kỳ chỉ giữ ${pouchLimit} lá.`);
+      pouch.push(card);
+      actor.cardsDrawnCount++;
+      s.history.push({
+        playerId: actor.id,
+        playerName: actor.name,
+        card,
+        round: s.round,
+        at: now,
+        drinks: 0,
+        completed: false,
+        stashed: true,
+      });
+      advance(s);
+      break;
+    }
+    case 'usePouch': {
+      playing();
+      ownTurn();
+      ensure(
+        s.revealed === null && s.pouchCard === null,
+        'ALREADY_REVEALED',
+        'Hãy hoàn thành lá đang mở.',
+      );
+      const pouch = pouchOf(actor);
+      const index = pouch.findIndex((c) => c.id === action.cardId);
+      ensure(index >= 0, 'NOT_IN_POUCH', 'Lá này không có trong túi thần kỳ.');
+      s.pouchCard = pouch.splice(index, 1)[0];
       break;
     }
     case 'skip': {
@@ -154,7 +223,7 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
       s.history.push({
         playerId: player.id,
         playerName: player.name,
-        card: s.revealed === null ? null : s.slots[s.revealed].card,
+        card: openCard(),
         round: s.round,
         at: now,
         drinks: 0,
@@ -179,6 +248,7 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
       host();
       s.phase = 'ended';
       s.revealed = null;
+      s.pouchCard = null;
       s.timerEndsAt = null;
       break;
     case 'restart':
@@ -192,6 +262,7 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
       s.round = 0;
       s.turn = 0;
       s.revealed = null;
+      s.pouchCard = null;
       s.timerEndsAt = null;
       break;
     case 'leave': {

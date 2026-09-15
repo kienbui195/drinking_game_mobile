@@ -8,7 +8,7 @@
     "start": "node dist/apps/api/src/main.js",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/engine.test.ts",
-    "test:integration": "tsx --test test/integration.test.ts"
+    "test:integration": "npm run build && tsx --test test/integration.test.ts"
   },
   "dependencies": {
     "@chamly/shared": "*",

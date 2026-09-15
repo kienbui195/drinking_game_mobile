@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { categories, packs } from '@chamly/shared';
 const text = (max: number) => z.string().trim().min(1).max(max);
 export const cardSchema = z
   .object({
@@ -6,11 +7,13 @@ export const cardSchema = z
     title: text(100),
     description: text(1500),
     penalty: text(500),
-    category: z.enum(['challenge', 'truth', 'drink', 'power', 'minigame', 'rule', 'lucky']),
+    category: z.enum(categories),
     drinksCount: z.number().int().min(0).max(20),
     hasTimer: z.boolean().optional(),
     timerSeconds: z.number().int().min(1).max(600).optional(),
     highlight: z.string().max(300).optional(),
+    answer: z.string().max(500).optional(),
+    keepable: z.boolean().optional(),
   })
   .refine((c) => !c.hasTimer || !!c.timerSeconds, 'Thiếu thời gian đếm ngược.');
 export const commandSchema = z.object({
@@ -26,7 +29,8 @@ export const commandSchema = z.object({
       drinks: z.number().int().min(0).max(20),
       completed: z.boolean(),
     }),
-    ...(['timer', 'skip', 'reshuffle', 'end', 'restart', 'leave'] as const).map((type) =>
+    z.object({ type: z.literal('usePouch'), cardId: z.string().max(80) }),
+    ...(['timer', 'stash', 'skip', 'reshuffle', 'end', 'restart', 'leave'] as const).map((type) =>
       z.object({ type: z.literal(type) }),
     ),
   ]),
@@ -35,6 +39,7 @@ export const createSchema = z.object({
   name: text(60),
   password: z.string().min(4).max(128),
   requestId: z.string().uuid(),
+  packId: z.enum(packs.map((p) => p.id) as [string, ...string[]]).optional(),
 });
 export const joinSchema = z.object({
   roomId: z
