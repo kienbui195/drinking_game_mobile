@@ -1,15 +1,22 @@
-{
-    email {$ACME_EMAIL}
-}
-
-{$API_DOMAIN} {
-    reverse_proxy api:3000
-}
-
-{$APP_DOMAIN} {
+:80 {
     encode zstd gzip
-    root * /srv
-    header /index.html Cache-Control "no-cache"
-    try_files {path} /index.html
-    file_server
+
+    handle /socket.io/* {
+        reverse_proxy api:3000
+    }
+
+    handle /health {
+        reverse_proxy api:3000
+    }
+
+    handle /sessions {
+        reverse_proxy api:3000
+    }
+
+    handle {
+        root * /srv
+        header /index.html Cache-Control "no-cache"
+        try_files {path} /index.html
+        file_server
+    }
 }

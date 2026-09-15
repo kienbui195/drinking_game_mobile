@@ -65,7 +65,7 @@ services:
       APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN}
       API_DOMAIN: ${API_DOMAIN:?Set API_DOMAIN}
       ACME_EMAIL: ${ACME_EMAIL:?Set ACME_EMAIL}
-    ports: ['80:80', '443:443', '443:443/udp']
+    ports: ['5001:80']
     volumes:
       - caddy_data:/data
       - caddy_config:/config
