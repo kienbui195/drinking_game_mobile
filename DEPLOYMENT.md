@@ -320,7 +320,7 @@ production trừ khi có chủ đích.
 |---|---|
 | `compose.production.yaml` | Định nghĩa stack production: db, api, web |
 | `.env.production.example` | Mẫu biến môi trường, copy thành `.env.production` |
-| `deploy/Caddyfile` | Routing trong image web: tĩnh + proxy `/socket.io`, `/health`, `/sessions` |
+| `deploy/Caddyfile` | Routing trong image web: tĩnh + proxy `/socket.io`, `/health`, `/sessions`, `/auth/*` |
 | `apps/api/Dockerfile` | Build API NestJS multi-stage |
 | `apps/mobile/Dockerfile` | Build web tĩnh bằng Expo rồi đóng gói cùng Caddy |
 | `docs/deployment-plan.html` | Kế hoạch triển khai chi tiết |

@@ -13,6 +13,10 @@
         reverse_proxy api:45100
     }
 
+    handle /auth/* {
+        reverse_proxy api:45100
+    }
+
     handle {
         root * /srv
         header /index.html Cache-Control "no-cache"
