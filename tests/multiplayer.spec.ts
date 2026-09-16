@@ -9,13 +9,24 @@ test('two independent browsers create, edit, join, play and resume', async ({ br
   for (const page of [host, guest]) page.on('pageerror', (e) => errors.push(e.message));
   async function login(page: Page, name: string) {
     await page.goto('http://localhost:45102');
-    await page.getByLabel('Tên người chơi', { exact: true }).fill(name);
-    await page.getByRole('button', { name: 'Vào sảnh →', exact: true }).click();
+    await page.getByRole('button', { name: 'Tạo tài khoản mới', exact: true }).click();
+    await page.getByLabel('Tên hiển thị', { exact: true }).fill(name);
+    await page.getByLabel('Mật khẩu đăng ký', { exact: true }).fill('ui-account-password');
+    await page.getByRole('button', { name: 'Tạo tài khoản và vào sảnh', exact: true }).click();
     await expect(page.getByText('● Trực tuyến', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Bộ bài của tôi', exact: true }).click();
+    // AC-03.2: thư viện trống hiển thị trạng thái trống thay vì danh sách rỗng im lặng.
+    await expect(
+      page.getByText('Chưa có bộ bài nào cho chủ đề này.', { exact: true }),
+    ).toBeVisible();
+    await page.getByLabel('Tên bộ bài mới', { exact: true }).fill(`Deck ${name}`);
+    await page.getByRole('button', { name: 'Sao chép bộ mặc định', exact: true }).click();
+    await expect(page.getByText(`Deck ${name}`, { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Quay lại sảnh', exact: true }).click();
   }
   try {
     await host.goto('http://localhost:45102');
-    await expect(host.getByText('Bắt đầu với tên của bạn')).toBeVisible();
+    await expect(host.getByText('Bắt đầu', { exact: true })).toBeVisible();
     await host.screenshot({ path: 'test-results/welcome-mobile.png', fullPage: true });
     await login(host, 'Host UI');
     await login(guest, 'Guest UI');
@@ -28,8 +39,9 @@ test('two independent browsers create, edit, join, play and resume', async ({ br
     expect(desktopShell.width).toBeLessThanOrEqual(430);
     expect(desktopShell.left).toBeCloseTo((desktopShell.viewport - desktopShell.width) / 2, 0);
     expect(desktopShell.bodyOverflow).toBe('hidden');
-    await host.getByRole('button', { name: '+ Tạo phòng mới', exact: true }).click();
+    await host.getByRole('button', { name: 'Tạo phòng mới', exact: true }).click();
     await host.getByLabel('Tên phòng', { exact: true }).fill('Phòng kiểm thử UI');
+    await host.getByLabel('Bộ bài Deck Host UI', { exact: true }).click();
     await host.getByLabel('Mật khẩu phòng (ít nhất 4 ký tự)', { exact: true }).fill('ui-test-123');
     await host.getByRole('button', { name: 'Tạo phòng', exact: true }).click();
     const roomCode = host.getByLabel(/^Mã phòng [A-F0-9]{6}$/);

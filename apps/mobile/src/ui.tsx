@@ -43,6 +43,31 @@ export function Button({
     </Pressable>
   );
 }
+export function IconButton({
+  icon,
+  label,
+  onPress,
+  disabled,
+  secondary,
+}: {
+  icon: string;
+  label: string;
+  onPress: () => void;
+  disabled?: boolean;
+  secondary?: boolean;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      disabled={disabled}
+      onPress={onPress}
+      className={`flex-1 min-h-14 rounded-2xl items-center justify-center border py-3 ${disabled ? 'opacity-40' : ''} ${secondary ? 'bg-panel border-slate-700' : 'bg-violet-400 border-violet-300'}`}
+    >
+      <Text className="text-2xl">{icon}</Text>
+    </Pressable>
+  );
+}
 export function Field({ label, ...props }: TextInputProps & { label: string }) {
   return (
     <View className="gap-2">

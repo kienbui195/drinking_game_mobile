@@ -40,6 +40,7 @@ export const createSchema = z.object({
   password: z.string().min(4).max(128),
   requestId: z.string().uuid(),
   packId: z.enum(packs.map((p) => p.id) as [string, ...string[]]).optional(),
+  deckId: z.string().uuid().optional(),
 });
 export const joinSchema = z.object({
   roomId: z
@@ -50,3 +51,29 @@ export const joinSchema = z.object({
   password: z.string().min(4).max(128),
 });
 export const nameSchema = z.object({ name: text(30) });
+export const accountSchema = z.object({
+  displayName: text(30),
+  password: z.string().min(8).max(128),
+});
+export const loginSchema = z.object({
+  username: z.string().trim().min(1).max(40),
+  password: z.string().min(8).max(128),
+});
+export const passwordChangeSchema = z.object({
+  currentPassword: z.string().min(8).max(128),
+  newPassword: z.string().min(8).max(128),
+});
+export const displayNameSchema = z.object({ displayName: text(30) });
+export const deckIdSchema = z.object({ deckId: z.string().uuid() });
+export const deckListSchema = z.object({
+  packId: z.enum(packs.map((p) => p.id) as [string, ...string[]]).optional(),
+});
+export const deckCreateSchema = z.object({
+  packId: z.enum(packs.map((p) => p.id) as [string, ...string[]]),
+  name: text(60),
+});
+export const deckCloneSchema = deckCreateSchema;
+export const deckUpdateSchema = deckIdSchema.extend({
+  name: text(60).optional(),
+  cards: z.array(cardSchema).min(0).max(200).optional(),
+});

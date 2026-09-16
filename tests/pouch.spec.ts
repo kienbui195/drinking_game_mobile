@@ -9,9 +9,16 @@ test('a keepable card can be stashed and played in a later round', async ({ brow
   for (const page of [host, guest]) page.on('pageerror', (e) => errors.push(e.message));
   async function login(page: Page, name: string) {
     await page.goto('http://localhost:45102');
-    await page.getByLabel('Tên người chơi', { exact: true }).fill(name);
-    await page.getByRole('button', { name: 'Vào sảnh →', exact: true }).click();
+    await page.getByRole('button', { name: 'Tạo tài khoản mới', exact: true }).click();
+    await page.getByLabel('Tên hiển thị', { exact: true }).fill(name);
+    await page.getByLabel('Mật khẩu đăng ký', { exact: true }).fill('pouch-account-password');
+    await page.getByRole('button', { name: 'Tạo tài khoản và vào sảnh', exact: true }).click();
     await expect(page.getByText('● Trực tuyến', { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Bộ bài của tôi', exact: true }).click();
+    await page.getByLabel('Tên bộ bài mới', { exact: true }).fill(`Deck ${name}`);
+    await page.getByRole('button', { name: 'Sao chép bộ mặc định', exact: true }).click();
+    await expect(page.getByText(`Deck ${name}`, { exact: true })).toBeVisible();
+    await page.getByRole('button', { name: 'Quay lại sảnh', exact: true }).click();
   }
   // Lá đang ở giữa băng chuyền lật ngay từ lần bấm đầu; lá ở rìa cần một lần bấm để cuốn vào
   // giữa trước. Bấm thêm sau khi popup đã mở sẽ bị chính popup chặn, nên phải kiểm tra trước.
@@ -31,8 +38,9 @@ test('a keepable card can be stashed and played in a later round', async ({ brow
   try {
     await login(host, 'Chủ Túi');
     await login(guest, 'Khách Túi');
-    await host.getByRole('button', { name: '+ Tạo phòng mới', exact: true }).click();
+    await host.getByRole('button', { name: 'Tạo phòng mới', exact: true }).click();
     await host.getByLabel('Tên phòng', { exact: true }).fill('Phòng túi thần kỳ');
+    await host.getByLabel('Bộ bài Deck Chủ Túi', { exact: true }).click();
     await host.getByLabel('Mật khẩu phòng (ít nhất 4 ký tự)', { exact: true }).fill('pouch-1234');
     await host.getByRole('button', { name: 'Tạo phòng', exact: true }).click();
     const code = (await host.getByLabel(/^Mã phòng [A-F0-9]{6}$/).innerText())

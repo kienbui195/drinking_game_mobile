@@ -70,8 +70,6 @@ export function RoomScreen({
   locked,
   disconnected,
   everyoneReady,
-  error,
-  onDismissError,
   onOpenDeck,
   send,
 }: {
@@ -81,8 +79,6 @@ export function RoomScreen({
   locked: boolean;
   disconnected: Player[];
   everyoneReady: boolean;
-  error: string;
-  onDismissError: () => void;
   onOpenDeck: () => void;
   send: (action: Action) => Promise<boolean>;
 }) {
@@ -151,15 +147,6 @@ export function RoomScreen({
         contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 24 }}
         keyboardShouldPersistTaps="handled"
       >
-        {!!error && (
-          <View
-            accessibilityRole="alert"
-            className="bg-rose-950 border border-rose-800 rounded-2xl p-4 gap-3"
-          >
-            <Text className="text-rose-200">{error}</Text>
-            <Button title="Đóng thông báo" secondary onPress={onDismissError} />
-          </View>
-        )}
         {solo && <Countdown seconds={countdown} />}
         {lobby ? (
           <>

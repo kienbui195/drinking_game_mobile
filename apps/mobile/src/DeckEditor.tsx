@@ -1,9 +1,14 @@
 import { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Crypto from 'expo-crypto';
 import { categoryLabels, packById, type Card } from '@chamly/shared';
 import { Button, Copy, Field, Heading, Panel } from './ui';
+
+const newId = () =>
+  'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (part) => {
+    const value = Math.floor(Math.random() * 16);
+    return (part === 'x' ? value : (value & 0x3) | 0x8).toString(16);
+  });
 
 export function DeckEditor({
   cards,
@@ -25,7 +30,7 @@ export function DeckEditor({
   const [busy, setBusy] = useState(false);
   function add() {
     setEditing({
-      id: Crypto.randomUUID(),
+      id: newId(),
       title: '',
       category: pack.categories[0],
       description: '',

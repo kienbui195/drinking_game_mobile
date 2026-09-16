@@ -1,0 +1,53 @@
+@startuml
+title Thiết kế dự kiến - ERD tài khoản, hồ sơ và bộ bài
+entity users {
+  * id : CHAR(36) <<PK>>
+  --
+  * username : VARCHAR(30) <<UQ, NOT NULL>>
+  * display_name : VARCHAR(30)
+  * password_hash : VARCHAR(200)
+  * created_at : BIGINT
+  * last_display_name_change_at : BIGINT NULL
+}
+entity auth_sessions {
+  * id : CHAR(36) <<PK>>
+  --
+  * user_id : CHAR(36) <<FK>>
+  * token_hash : CHAR(64) <<UQ>>
+  * expires_at : BIGINT
+  * online_started_at : BIGINT
+  * online_duration_ms : BIGINT
+}
+entity decks {
+  * id : CHAR(36) <<PK>>
+  --
+  * owner_user_id : CHAR(36) <<FK>>
+  * pack_id : VARCHAR(40)
+  * name : VARCHAR(80)
+  * created_at : BIGINT
+  * updated_at : BIGINT
+}
+entity deck_cards {
+  * id : CHAR(36) <<PK>>
+  --
+  * deck_id : CHAR(36) <<FK>>
+  * position : INT
+  * card : JSON
+}
+entity default_decks {
+  * id : VARCHAR(40) <<PK>>
+  --
+  * cards : JSON
+}
+entity rooms {
+  * id : CHAR(6) <<PK>>
+  --
+  * state : JSON
+  * expires_at : BIGINT
+}
+users ||--o{ auth_sessions
+users ||--o{ decks
+decks ||--o{ deck_cards
+decks ..> rooms : snapshot khi tạo phòng
+default_decks ..> decks : nguồn clone
+@enduml

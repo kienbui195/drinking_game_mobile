@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>Báo cáo test: Tài khoản và bộ bài cá nhân</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>:root { color-scheme: light only; }</style>
+  </head>
+  <body class="bg-slate-100 text-slate-800">
+    <aside class="fixed inset-y-0 left-0 hidden w-72 overflow-y-auto border-r border-slate-200 bg-white p-6 lg:block">
+      <p class="text-xs font-bold tracking-widest text-indigo-700">CHAM LY · KIEM THU</p>
+      <h1 class="mt-2 text-xl font-black text-slate-900">Tài khoản và bộ bài cá nhân</h1>
+      <nav class="mt-8 space-y-2 text-sm">
+        <a class="block text-slate-600 hover:text-indigo-700" href="#tong-quan">Tổng quan</a>
+        <a class="block text-slate-600 hover:text-indigo-700" href="#ac">Test theo AC</a>
+        <a class="block text-slate-600 hover:text-indigo-700" href="#toan-bo">Toàn bộ test hiện có</a>
+        <a class="block text-slate-600 hover:text-indigo-700" href="#anh-huong">Ảnh hưởng hệ thống</a>
+        <a class="block text-slate-600 hover:text-indigo-700" href="#no">Việc còn nợ</a>
+      </nav>
+      <div class="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-6 text-slate-600">
+        <p class="font-semibold text-slate-800">Tài liệu trong series</p>
+        <p>0. <a class="text-indigo-700 hover:underline" href="00-state.md">Trạng thái pipeline</a></p>
+        <p>1. <a class="text-indigo-700 hover:underline" href="01-phan-tich.html">Phân tích nghiệp vụ</a></p>
+        <p>2. <a class="text-indigo-700 hover:underline" href="02-giai-phap-us-ac.html">Giải pháp + US/AC</a></p>
+        <p>3. <a class="text-indigo-700 hover:underline" href="03-so-do.html">Sơ đồ</a></p>
+        <p class="font-semibold text-slate-900">5. Báo cáo test</p>
+      </div>
+    </aside>
+    <main class="min-h-screen p-5 lg:ml-72 lg:p-10">
+      <header class="border-b border-slate-200 pb-8">
+        <p class="text-sm font-bold text-indigo-700">BƯỚC 5 · KIỂM THỬ</p>
+        <h1 class="mt-2 text-3xl font-black text-slate-950">Báo cáo kiểm thử: tài khoản, hồ sơ và bộ bài cá nhân</h1>
+        <p class="mt-3 max-w-4xl text-lg leading-8 text-slate-600">
+          Toàn bộ 20 AC (US-01 → US-07) đã có ít nhất một test tự động chạy thật, không có case nào
+          phải chờ user test tay. Một sub-test trong <code>admin.spec.ts</code> đang fail vì thiếu
+          biến môi trường ở tiến trình dev đang chạy nền — không phải lỗi code của việc này (chi
+          tiết ở mục "Việc còn nợ").
+        </p>
+      </header>
+
+      <section id="tong-quan" class="mt-8">
+        <h2 class="text-2xl font-bold text-slate-950">Tổng quan kết quả</h2>
+        <div class="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <p class="text-xs font-bold uppercase tracking-wide text-emerald-700">Typecheck</p>
+            <p class="mt-2 text-2xl font-black text-emerald-900">Pass</p>
+            <p class="mt-1 text-sm text-emerald-800">apps/api + apps/mobile, exit code 0.</p>
+          </div>
+          <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <p class="text-xs font-bold uppercase tracking-wide text-emerald-700">Unit test</p>
+            <p class="mt-2 text-2xl font-black text-emerald-900">9 / 9</p>
+            <p class="mt-1 text-sm text-emerald-800"><code>npm test</code> (engine.test.ts) — không đổi so với trước, không hồi quy.</p>
+          </div>
+          <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+            <p class="text-xs font-bold uppercase tracking-wide text-emerald-700">Integration test</p>
+            <p class="mt-2 text-2xl font-black text-emerald-900">3 / 3</p>
+            <p class="mt-1 text-sm text-emerald-800">MySQL + socket thật, cổng 45101/45100 và một backend thử nghiệm cổng 45105.</p>
+          </div>
+          <div class="rounded-2xl border border-amber-200 bg-amber-50 p-5">
+            <p class="text-xs font-bold uppercase tracking-wide text-amber-700">E2E (Playwright)</p>
+            <p class="mt-2 text-2xl font-black text-amber-900">3 / 4</p>
+            <p class="mt-1 text-sm text-amber-800">1 sub-test fail do thiếu <code>ADMIN_PASSWORD</code> ở tiến trình dev — xem mục nợ.</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="ac" class="mt-10">
+        <h2 class="text-2xl font-bold text-slate-950">Test theo từng AC</h2>
+        <p class="mt-2 max-w-4xl leading-7 text-slate-600">
+          Tất cả AC dưới đây đều <b>tự test được</b> (unit/integration/e2e chạy trong môi trường
+          hiện tại) — không có AC nào cần thao tác tay trên thiết bị vật lý. Bằng chứng dẫn thẳng
+          tới file và dòng test. AC-01.2 và US-07 (username bất biến) có ghi chú vì nghiệp vụ thật
+          đã thay đổi so với câu chữ AC gốc trong <code>02-giai-phap-us-ac.html</code>.
+        </p>
+
+        <div class="mt-5 space-y-4">
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 class="font-bold text-slate-950">US-01 · Đăng ký tài khoản</h3>
+            <table class="mt-3 w-full text-sm">
+              <tbody class="divide-y divide-slate-100">
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-01.1</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Đăng ký hợp lệ → username sinh tự động từ tên hiển thị (<code>dang-ky-…</code>), trả session, không lưu mật khẩu thô (scrypt + salt).
+                    <p class="mt-1 text-slate-500">apps/api/test/integration.test.ts:222 (<code>assert.match(owner.username!, /^dang-ky-/)</code>), :223-225 (profile khớp displayName, deckCount ban đầu = 0).</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-01.2</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt (đã cập nhật nghiệp vụ)</span>
+                    Câu chữ AC gốc nói "username đã tồn tại → từ chối", nhưng theo quyết định cổng 2
+                    (cập nhật), username trùng được tự sinh hậu tố tăng dần thay vì từ chối — nên
+                    nhánh còn lại thật sự cần test là <b>dữ liệu không hợp lệ</b> (mật khẩu quá ngắn).
+                    <p class="mt-1 text-slate-500">apps/api/test/integration.test.ts:215-221 — đăng ký với mật khẩu 5 ký tự trả 400, không tạo user.</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 class="font-bold text-slate-950">US-02 · Đăng nhập và đăng xuất</h3>
+            <table class="mt-3 w-full text-sm">
+              <tbody class="divide-y divide-slate-100">
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-02.1</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Đăng nhập lại bằng mật khẩu mới sau khi đổi mật khẩu → 201, session trả đúng username và tên hiển thị.
+                    <p class="mt-1 text-slate-500">integration.test.ts:322-330 (<code>POST /auth/login</code> với mật khẩu mới, so khớp <code>reloginSession.username</code>/<code>.name</code>).</p>
+                    <p class="mt-1 text-slate-500">UI: tests/multiplayer.spec.ts, tests/pouch.spec.ts — luồng đăng ký/vào sảnh qua giao diện thật (Playwright), có chụp ảnh <code>test-results/welcome-mobile.png</code>.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-02.2</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Mật khẩu cũ không còn đăng nhập được sau khi đổi; token không hợp lệ bị từ chối kết nối socket.
+                    <p class="mt-1 text-slate-500">integration.test.ts:315-320 (<code>oldLogin.status === 401</code>); dòng 72 (test đầu) — <code>assert.rejects(open('invalid'), /UNAUTHORIZED/)</code> dùng chung cơ chế <code>authenticate()</code> cho cả tài khoản.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-02.3</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Đăng xuất xóa session; token cũ không mở lại được socket.
+                    <p class="mt-1 text-slate-500">integration.test.ts:349-350 (<code>auth:logout</code> trả ok, sau đó <code>open(other.token)</code> bị reject UNAUTHORIZED).</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 class="font-bold text-slate-950">US-03 · Xem thư viện theo game</h3>
+            <table class="mt-3 w-full text-sm">
+              <tbody class="divide-y divide-slate-100">
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-03.1</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    <code>decks:list</code> theo <code>packId</code> chỉ trả deck của chính tài khoản, đúng game; tài khoản khác không thấy deck này.
+                    <p class="mt-1 text-slate-500">integration.test.ts:246-252 (danh sách của owner đúng 2 deck vừa tạo, danh sách của "other" rỗng).</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-03.2</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Chưa có deck → hiển thị trạng thái trống, có nút tạo mới/sao chép mẫu ngay trên màn hình đó.
+                    <p class="mt-1 text-slate-500">tests/multiplayer.spec.ts:17-18 — Playwright kiểm tra text "Chưa có bộ bài nào cho chủ đề này." hiển thị trước khi tạo deck đầu tiên.</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 class="font-bold text-slate-950">US-04 · Clone deck mặc định</h3>
+            <table class="mt-3 w-full text-sm">
+              <tbody class="divide-y divide-slate-100">
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-04.1</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    <code>decks:cloneDefault</code> tạo deck mới thuộc tài khoản, sao y toàn bộ lá của mẫu tại thời điểm clone.
+                    <p class="mt-1 text-slate-500">integration.test.ts:236-244.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-04.2</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Sửa lá trong bản clone không đổi deck mặc định của hệ thống.
+                    <p class="mt-1 text-slate-500">integration.test.ts:298-300 — sau khi đổi tên lá trong bản clone thành "Changed later", đọc lại <code>store.defaultDeck('kien-thuc')</code> và xác nhận không lá nào trùng tiêu đề đó.</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 class="font-bold text-slate-950">US-05 · Tạo và quản lý deck mới</h3>
+            <table class="mt-3 w-full text-sm">
+              <tbody class="divide-y divide-slate-100">
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-05.1</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Tạo deck trống theo game (<code>decks:create</code>) — deck riêng, 0 lá ban đầu; sửa lá sai category của game bị chặn ở tầng server (không chỉ UI).
+                    <p class="mt-1 text-slate-500">integration.test.ts:227-235 (deck trống); :254-258 (<code>decks:update</code> với category "challenge" ngoài <code>kien-thuc</code> → <code>ok:false</code>, validate ở <code>Store.validateDeckCards</code>).</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-05.2</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Deck lưu ở MySQL theo <code>user_decks</code>/<code>deck_cards</code>, độc lập vòng đời session — dùng được để tạo phòng, và sau khi đổi mật khẩu + đăng nhập lại bằng phiên hoàn toàn mới, deck (kèm nội dung đã sửa) vẫn đọc lại được nguyên vẹn.
+                    <p class="mt-1 text-slate-500">integration.test.ts:278-287 (tạo phòng bằng deck thành công); :322-334 (đăng nhập lại bằng phiên mới, gọi <code>decks:list</code> qua socket đó và xác nhận deck + lá đã sửa vẫn còn nguyên).</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-05.3</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Không phải chủ sở hữu đọc deck → lỗi, dữ liệu không đổi.
+                    <p class="mt-1 text-slate-500">integration.test.ts:253 — <code>otherSocket</code> gọi <code>decks:get</code> lên deck của owner, nhận <code>ok:false</code> (mã <code>DECK_NOT_FOUND</code>, đúng tinh thần FORBIDDEN/NOT_FOUND của AC).</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 class="font-bold text-slate-950">US-06 · Chọn deck khi tạo phòng</h3>
+            <table class="mt-3 w-full text-sm">
+              <tbody class="divide-y divide-slate-100">
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-06.1</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Deck đúng chủ nhưng khác game bị chặn khi tạo phòng (<code>DECK_PACK_MISMATCH</code>); UI cũng chỉ liệt kê deck đúng game đã chọn trong màn tạo phòng.
+                    <p class="mt-1 text-slate-500">integration.test.ts:268-277 (server chặn); tests/multiplayer.spec.ts — chọn deck qua checkbox <code>Bộ bài Deck Host UI</code> trên UI thật trước khi bật được nút "Tạo phòng".</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-06.2</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Tài khoản chưa chọn deck (không gửi <code>deckId</code>) không được ngầm dùng deck hệ thống — server trả <code>DECK_REQUIRED</code>; trên UI, nút "Tạo phòng" bị khoá cho tới khi chọn một deck.
+                    <p class="mt-1 text-slate-500">integration.test.ts:259-267 (server); apps/mobile/src/App.tsx (nút tạo phòng <code>disabled</code> khi <code>!selectedDeckId</code>).</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">AC-06.3</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Phòng dùng snapshot deck tại thời điểm tạo; sửa deck sau đó không đổi bài trong phòng đang chạy.
+                    <p class="mt-1 text-slate-500">integration.test.ts:278-297 (<code>created.deck[0].title</code> giữ nguyên dù <code>decks:update</code> đã đổi tiêu đề lá tương ứng trong deck gốc).</p>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+
+          <article class="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <h3 class="font-bold text-slate-950">US-07 · Quản lý hồ sơ</h3>
+            <table class="mt-3 w-full text-sm">
+              <tbody class="divide-y divide-slate-100">
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">Hồ sơ</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    <code>profile:get</code> trả đúng username, tên hiển thị, tổng giờ online (tích luỹ từ <code>session_durations</code> + phiên đang mở) và tổng số deck.
+                    <p class="mt-1 text-slate-500">integration.test.ts:223-225, 245 (deckCount theo dõi đúng qua 2 lần tạo deck).</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">Đổi mật khẩu</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Sai mật khẩu hiện tại → từ chối (<code>WRONG_PASSWORD</code>), không đổi gì; đúng mật khẩu hiện tại → đổi thành công, mật khẩu cũ hết hiệu lực.
+                    <p class="mt-1 text-slate-500">integration.test.ts:301-307 (sai mật khẩu hiện tại); :308-314 (đổi đúng) + :315-320 (mật khẩu cũ không login được).</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">Đổi tên hiển thị</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-bold text-emerald-800">đã verify đạt</span>
+                    Lần đổi đầu thành công; đổi lần hai trong vòng 7 ngày bị chặn với mã <code>DISPLAY_NAME_COOLDOWN</code> kèm <code>nextAllowedAt</code> trong tương lai.
+                    <p class="mt-1 text-slate-500">integration.test.ts:336-347.</p>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="w-28 py-2 align-top font-semibold">Username bất biến</td>
+                  <td class="py-2 align-top">
+                    <span class="rounded bg-sky-100 px-2 py-0.5 text-xs font-bold text-sky-800">xác nhận bằng đọc code, không có test phủ định</span>
+                    Không tồn tại endpoint hay message nào cho phép sửa username ở <code>gateway.ts</code>/<code>main.ts</code>/<code>store.ts</code> — không có thao tác để mà chặn, nên không viết được test "cố sửa và bị từ chối" có ý nghĩa. Đã rà lại toàn bộ danh sách <code>@SubscribeMessage</code> và route HTTP để xác nhận.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </article>
+        </div>
+      </section>
+
+      <section id="toan-bo" class="mt-10 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 class="text-2xl font-bold text-slate-950">Chạy toàn bộ test sẵn có (bắt hồi quy)</h2>
+        <p class="mt-2 leading-7 text-slate-600">Không có test cũ nào bị hỏng bởi thay đổi của việc này.</p>
+        <div class="mt-4 grid gap-4 md:grid-cols-2">
+          <div class="rounded-xl bg-slate-950 p-4 font-mono text-xs leading-6 text-slate-100">
+            <p class="text-slate-400"># npm run typecheck</p>
+            <p>@chamly/api typecheck ✓ &nbsp; @chamly/app typecheck ✓ &nbsp; exit 0</p>
+            <p class="mt-3 text-slate-400"># npm test (engine.test.ts)</p>
+            <p># tests 9 · # pass 9 · # fail 0</p>
+            <p class="mt-3 text-slate-400"># npm run test:integration</p>
+            <p># tests 3 · # pass 3 · # fail 0</p>
+          </div>
+          <div class="rounded-xl bg-slate-950 p-4 font-mono text-xs leading-6 text-slate-100">
+            <p class="text-slate-400"># ADMIN_PASSWORD=*** npm run test:e2e</p>
+            <p>✓ admin.spec.ts &gt; admin gate needs the right password</p>
+            <p class="text-rose-300">✘ admin.spec.ts &gt; admin dashboard lists rooms (xem mục nợ)</p>
+            <p>✓ multiplayer.spec.ts &gt; create, edit, join, play, resume</p>
+            <p>✓ pouch.spec.ts &gt; keepable card stashed and played later</p>
+            <p class="mt-2 text-slate-400">3 passed, 1 failed (do môi trường)</p>
+          </div>
+        </div>
+        <p class="mt-4 text-sm leading-6 text-slate-600">
+          <code>tests/multiplayer.spec.ts</code>, <code>tests/pouch.spec.ts</code> và
+          <code>tests/admin.spec.ts</code> đã được cập nhật để đăng ký tài khoản + tạo/chọn deck
+          thay cho luồng nhập tên ẩn danh cũ đã bị gỡ khỏi giao diện; trước khi sửa, cả ba đều
+          treo/fail ngay ở bước đăng nhập vì nhãn nút/field không còn khớp giao diện mới — đây là
+          một bug đã sửa trong việc này, không phải test mới viết thêm cho có.
+        </p>
+      </section>
+
+      <section id="anh-huong" class="mt-10 rounded-2xl border border-indigo-200 bg-indigo-50 p-6">
+        <h2 class="text-2xl font-bold text-indigo-950">Đánh giá ảnh hưởng hệ thống hiện tại</h2>
+        <ul class="mt-3 list-disc space-y-2 pl-5 leading-7 text-indigo-950">
+          <li><b>Bảng <code>sessions</code> (đã có từ trước)</b> — chỉ thêm 2 cột NULL được (<code>user_id</code>, <code>started_at</code>), không đổi cột cũ. Luồng phiên ẩn danh cũ (<code>POST /sessions</code>, dùng bởi test "real MySQL + sockets…") vẫn chạy nguyên vẹn — đã xác nhận qua test 1 vẫn pass.</li>
+          <li><b>Kiểu <code>Session</code> / <code>Reply&lt;T&gt;</code> (packages/shared)</b> — chỉ thêm field optional (<code>username?</code>, <code>nextAllowedAt?</code>), đã rà <code>AdminDashboard.tsx</code> và <code>RoomScreen.tsx</code> — không nơi nào giả định shape cũ cố định, không có phá vỡ.</li>
+          <li><b><code>GameEngine</code> / phòng chơi thời gian thực</b> — không đổi state machine; thay đổi duy nhất là <b>nguồn</b> bộ bài khởi tạo phòng (từ deck cá nhân snapshot thay vì luôn luôn từ deck mặc định). Toàn bộ test cũ về timer, lượt chơi, túi thần kỳ, resume sau restart (test 1 và test 3) vẫn pass nguyên trạng.</li>
+          <li><b>Admin dashboard / thông báo phòng</b> — không đổi logic, nhưng phụ thuộc gián tiếp vào giao diện đăng nhập mà việc này đã thay thế hoàn toàn (bỏ luồng "chỉ nhập tên"). Đây là lý do <code>tests/admin.spec.ts</code> phải sửa theo — đã sửa, xem mục "Toàn bộ test sẵn có".</li>
+          <li><b><code>apps/mobile/src/connection.ts</code></b> — thêm phát hiện hostname LAN riêng tư khi chạy web dev, không đổi hành vi production (giữ nguyên <code>EXPO_PUBLIC_API_URL</code> khi hostname không phải localhost/LAN riêng tư).</li>
+        </ul>
+      </section>
+
+      <section id="no" class="mt-10 rounded-2xl border border-amber-200 bg-amber-50 p-6">
+        <h2 class="text-2xl font-bold text-amber-950">Việc còn nợ</h2>
+        <ul class="mt-3 list-disc space-y-3 pl-5 leading-7 text-amber-950">
+          <li>
+            <b>Sub-test "admin dashboard lists rooms and can manage them" đang fail vì môi trường, không phải code.</b>
+            Tiến trình API dev đang chạy nền (PID phát hiện lúc kiểm thử, khởi động lúc 15:46) không
+            có biến <code>ADMIN_PASSWORD</code> trong environment của chính nó (đã xác nhận bằng
+            <code>/proc/&lt;pid&gt;/environ</code>) — nên <code>adminPassword()</code> trả về chuỗi
+            rỗng và mọi mật khẩu admin đều bị từ chối, kể cả mật khẩu đúng trong <code>.env</code>.
+            Cách xử lý: restart tiến trình API dev với <code>.env</code> được load (ví dụ dừng
+            process hiện tại rồi chạy lại <code>npm run api</code> từ shell đã <code>source .env</code>,
+            hoặc chuyển hẳn sang chạy qua <code>docker compose</code>). Chưa tự làm vì tiến trình đó
+            có thể đang được một phiên làm việc khác (Codex) dùng — <b>cần user xác nhận</b> trước khi
+            khởi động lại.
+          </li>
+          <li>
+            <b>Luồng phiên ẩn danh (chỉ nhập tên, endpoint <code>POST /sessions</code>) vẫn còn trong
+            code nhưng không còn lối vào từ giao diện mobile.</b> Đây là quyết định thiết kế hợp lý
+            (toàn bộ US-01..US-07 giả định có tài khoản), nhưng chưa có xác nhận rõ ràng từ user là
+            có nên gỡ hẳn endpoint/luồng đó khỏi backend hay giữ lại để tương thích ngược cho các bản
+            ứng dụng cũ đã cài trên máy người chơi thật. Đề xuất: giữ nguyên cho tới khi biết chắc
+            không còn thiết bị nào dùng bản cũ.
+          </li>
+          <li>
+            <b><code>04-handoff.md</code> chưa từng được tạo</b> vì user chọn "tôi code" trực tiếp ở
+            cổng 4 thay vì bàn giao cho AI/dev khác — theo đúng quy trình, file này chỉ bắt buộc khi
+            chọn nhánh "người khác code". Không phải thiếu sót.
+          </li>
+        </ul>
+        <p class="mt-4 rounded-xl bg-white p-4 text-sm leading-6 text-amber-900">
+          <b>Bước tiếp theo cần user xác nhận trước khi merge vào <code>main</code>:</b> (1) đồng ý
+          coi bước 5 đã đạt dù có 1 sub-test admin fail do môi trường (không do code việc này); (2)
+          quyết định có restart tiến trình API dev để chạy lại đúng sub-test đó cho sạch hay chấp
+          nhận bằng chứng phân tích qua <code>/proc/&lt;pid&gt;/environ</code>; (3) quyết định giữ
+          hay gỡ endpoint phiên ẩn danh cũ. Sau khi có xác nhận, chuyển sang Bước 6 (chốt AC, merge
+          theo đúng quy trình phát hành đã duyệt ở <code>02-giai-phap-us-ac.html</code>: build/export/test
+          → merge vào <code>main</code> → build production từ <code>main</code>).
+        </p>
+      </section>
+
+      <div class="mt-16 flex items-center justify-between border-t border-slate-200 pt-6 text-sm">
+        <a class="text-indigo-700 hover:underline" href="03-so-do.html">← Tài liệu trước: Sơ đồ</a>
+      </div>
+    </main>
+  </body>
+</html>

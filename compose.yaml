@@ -35,6 +35,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-chamly}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-local-app-change-me}
       API_PORT: 45100
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-adminserverday}
       ADMIN_ROOM_NAME: ${ADMIN_ROOM_NAME:-adminserverday}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:45102,http://localhost:45103}

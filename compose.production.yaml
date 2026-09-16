@@ -38,6 +38,7 @@ services:
       MYSQL_USER: ${MYSQL_USER:-chamly}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
       CORS_ORIGINS: https://${APP_DOMAIN:?Set APP_DOMAIN}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-adminserverday}
       ADMIN_ROOM_NAME: ${ADMIN_ROOM_NAME:-adminserverday}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD}
     depends_on:

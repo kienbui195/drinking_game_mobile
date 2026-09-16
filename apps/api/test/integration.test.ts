@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { io, type Socket } from 'socket.io-client';
-import type { Action, Reply, RoomView, Session } from '@chamly/shared';
+import type { Action, OwnedDeck, Profile, Reply, RoomView, Session } from '@chamly/shared';
 import { Store } from '../src/store';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
@@ -27,6 +27,15 @@ async function session(name: string): Promise<Session> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
+  });
+  assert.equal(response.status, 201);
+  return response.json();
+}
+async function account(displayName: string, password = 'account-secret'): Promise<Session> {
+  const response = await fetch(`${url}/auth/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ displayName, password }),
   });
   assert.equal(response.status, 201);
   return response.json();
@@ -163,6 +172,183 @@ test(
       other.id,
     ]);
     assert.equal((await rpc(outsider, 'room:sync', { roomId: other.id })).ok, false);
+  },
+);
+
+test(
+  'registered accounts own validated deck snapshots and expose profile data',
+  { timeout: 30_000 },
+  async (t) => {
+    const suffix = randomUUID().slice(0, 6);
+    const displayName = `Đăng Ký ${suffix}`;
+    const owner = await account(displayName);
+    const other = await account(`Khách ${suffix}`);
+    const ownerSocket = await open(owner.token);
+    const otherSocket = await open(other.token);
+    const store = new Store();
+    await store.onModuleInit();
+    const decks: string[] = [];
+    let roomId = '';
+    t.after(async () => {
+      ownerSocket.disconnect();
+      otherSocket.disconnect();
+      if (roomId) await store.pool.execute('DELETE FROM rooms WHERE id = ?', [roomId]);
+      for (const id of decks)
+        await store.pool.execute('DELETE FROM deck_cards WHERE deck_id = ?', [id]);
+      for (const username of [owner.username, other.username]) {
+        await store.pool.execute(
+          'DELETE FROM session_durations WHERE user_id IN (SELECT id FROM users WHERE username = ?)',
+          [username],
+        );
+        await store.pool.execute(
+          'DELETE FROM sessions WHERE user_id IN (SELECT id FROM users WHERE username = ?)',
+          [username],
+        );
+        await store.pool.execute(
+          'DELETE FROM user_decks WHERE user_id IN (SELECT id FROM users WHERE username = ?)',
+          [username],
+        );
+        await store.pool.execute('DELETE FROM users WHERE username = ?', [username]);
+      }
+      await store.onModuleDestroy();
+    });
+    // AC-01.2 (dữ liệu không hợp lệ): mật khẩu quá ngắn bị từ chối, không tạo tài khoản.
+    const invalidRegister = await fetch(`${url}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName: `Ngắn ${suffix}`, password: 'short' }),
+    });
+    assert.equal(invalidRegister.status, 400);
+    assert.match(owner.username!, /^dang-ky-/);
+    const profile = unwrap(await rpc<Profile>(ownerSocket, 'profile:get'));
+    assert.equal(profile.displayName, displayName);
+    assert.equal(profile.deckCount, 0);
+    // AC-03.1/US-05: thư viện trống ban đầu, tạo deck mới từ đầu theo game đã chọn.
+    assert.deepEqual(unwrap(await rpc<OwnedDeck[]>(ownerSocket, 'decks:list', {})), []);
+    const blank = unwrap(
+      await rpc<OwnedDeck>(ownerSocket, 'decks:create', {
+        packId: 'kien-thuc',
+        name: 'Deck trống của tôi',
+      }),
+    );
+    decks.push(blank.id);
+    assert.equal(blank.cards.length, 0);
+    const deck = unwrap(
+      await rpc<OwnedDeck>(ownerSocket, 'decks:cloneDefault', {
+        packId: 'kien-thuc',
+        name: 'My knowledge deck',
+      }),
+    );
+    decks.push(deck.id);
+    assert.equal(deck.cards.length > 1, true);
+    assert.equal(deck.packId, 'kien-thuc');
+    assert.equal(unwrap(await rpc<Profile>(ownerSocket, 'profile:get')).deckCount, 2);
+    // AC-03.1: thư viện chỉ hiển thị deck của chính tài khoản, đúng game đã chọn.
+    const ownerLibrary = unwrap(
+      await rpc<OwnedDeck[]>(ownerSocket, 'decks:list', { packId: 'kien-thuc' }),
+    );
+    assert.deepEqual(ownerLibrary.map((d) => d.id).sort(), [blank.id, deck.id].sort());
+    assert.deepEqual(unwrap(await rpc<OwnedDeck[]>(otherSocket, 'decks:list', {})), []);
+    assert.equal((await rpc(otherSocket, 'decks:get', { deckId: deck.id })).ok, false);
+    const invalid = await rpc(ownerSocket, 'decks:update', {
+      deckId: deck.id,
+      cards: [{ ...deck.cards[0], category: 'challenge' }],
+    });
+    assert.equal(invalid.ok, false);
+    // AC-06.2: chưa chọn deck thì không được ngầm dùng deck hệ thống để tạo phòng.
+    const missingDeck = await rpc(ownerSocket, 'room:create', {
+      name: 'Phòng thiếu deck',
+      password: 'test-secret',
+      requestId: randomUUID(),
+      packId: 'kien-thuc',
+    });
+    assert.equal(missingDeck.ok, false);
+    if (!missingDeck.ok) assert.equal(missingDeck.code, 'DECK_REQUIRED');
+    // AC-06.1: deck không thuộc game đã chọn bị từ chối khi tạo phòng.
+    const mismatchedDeck = await rpc(ownerSocket, 'room:create', {
+      name: 'Phòng sai game',
+      password: 'test-secret',
+      requestId: randomUUID(),
+      packId: 'chamly-50',
+      deckId: deck.id,
+    });
+    assert.equal(mismatchedDeck.ok, false);
+    if (!mismatchedDeck.ok) assert.equal(mismatchedDeck.code, 'DECK_PACK_MISMATCH');
+    const created = unwrap(
+      await rpc<RoomView>(ownerSocket, 'room:create', {
+        name: 'Owned deck room',
+        password: 'test-secret',
+        requestId: randomUUID(),
+        packId: 'kien-thuc',
+        deckId: deck.id,
+      }),
+    );
+    roomId = created.id;
+    const changed = unwrap(
+      await rpc<OwnedDeck>(ownerSocket, 'decks:update', {
+        deckId: deck.id,
+        cards: deck.cards.map((card, index) =>
+          index ? card : { ...card, title: 'Changed later' },
+        ),
+      }),
+    );
+    assert.equal(changed.cards[0].title, 'Changed later');
+    assert.notEqual(created.deck[0].title, 'Changed later');
+    // AC-04.2: sửa bản clone không ảnh hưởng đến deck mặc định của hệ thống.
+    const defaultCards = await store.defaultDeck('kien-thuc');
+    assert.ok(defaultCards.every((card) => card.title !== 'Changed later'));
+    // Đổi mật khẩu sai mật khẩu hiện tại bị từ chối.
+    const wrongCurrent = await rpc(ownerSocket, 'profile:changePassword', {
+      currentPassword: 'not-the-real-password',
+      newPassword: 'new-account-secret',
+    });
+    assert.equal(wrongCurrent.ok, false);
+    if (!wrongCurrent.ok) assert.equal(wrongCurrent.code, 'WRONG_PASSWORD');
+    const passwordChanged = unwrap(
+      await rpc<{ ok: true }>(ownerSocket, 'profile:changePassword', {
+        currentPassword: 'account-secret',
+        newPassword: 'new-account-secret',
+      }),
+    );
+    assert.equal(passwordChanged.ok, true);
+    const oldLogin = await fetch(`${url}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: owner.username, password: 'account-secret' }),
+    });
+    assert.equal(oldLogin.status, 401);
+    // AC-02.1: đăng nhập lại với mật khẩu mới thành công.
+    const relogin = await fetch(`${url}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: owner.username, password: 'new-account-secret' }),
+    });
+    assert.equal(relogin.status, 201);
+    const reloginSession: Session = await relogin.json();
+    assert.equal(reloginSession.username, owner.username);
+    assert.equal(reloginSession.name, displayName);
+    const reloginSocket = await open(reloginSession.token);
+    // AC-05.2: deck vẫn còn nguyên sau khi đăng xuất/đăng nhập lại bằng phiên mới.
+    const relist = unwrap(
+      await rpc<OwnedDeck[]>(reloginSocket, 'decks:list', { packId: 'kien-thuc' }),
+    );
+    assert.ok(relist.some((d) => d.id === deck.id && d.cards[0]?.title === 'Changed later'));
+    reloginSocket.disconnect();
+    assert.equal(
+      (await rpc(ownerSocket, 'profile:changeDisplayName', { displayName: 'Tên mới' })).ok,
+      true,
+    );
+    const cooldown = await rpc(ownerSocket, 'profile:changeDisplayName', {
+      displayName: 'Tên khác',
+    });
+    assert.equal(cooldown.ok, false);
+    if (!cooldown.ok) {
+      assert.equal(cooldown.code, 'DISPLAY_NAME_COOLDOWN');
+      assert.ok(cooldown.nextAllowedAt && cooldown.nextAllowedAt > Date.now());
+    }
+    // AC-02.3: đăng xuất xóa token, phiên đó không dùng lại được.
+    assert.equal((await rpc(otherSocket, 'auth:logout')).ok, true);
+    await assert.rejects(open(other.token), /UNAUTHORIZED/);
   },
 );
 

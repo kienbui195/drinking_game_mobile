@@ -1,0 +1,47 @@
+@startuml
+title Thiết kế dự kiến - Luồng tài khoản, hồ sơ và bộ bài
+start
+:Mở ứng dụng;
+if (Có session hợp lệ?) then (có)
+  :Mở sảnh;
+else (không)
+  :Nhập tên hiển thị và mật khẩu;
+  if (Dữ liệu hợp lệ?) then (có)
+    :Sinh username duy nhất từ tên hiển thị;
+    :Tạo tài khoản và session;
+    :Mở sảnh;
+  else (không)
+    :Hiển thị lỗi;
+    stop
+  endif
+endif
+if (Mở trang cá nhân?) then (có)
+  :Xem username, tên, giờ online và số deck;
+  if (Đổi tên hiển thị?) then (có)
+    if (Đã đủ 7 ngày?) then (có)
+      :Lưu tên mới và thời điểm đổi tên;
+    else (không)
+      :Hiển thị thời điểm được đổi lại;
+    endif
+  endif
+  if (Đổi mật khẩu?) then (có)
+    :Xác minh mật khẩu hiện tại;
+    :Lưu password hash mới;
+  endif
+  stop
+endif
+:Chọn game;
+if (Có deck cá nhân hợp lệ?) then (có)
+  :Chọn deck;
+else (không)
+  if (Clone deck mặc định?) then (có)
+    :Tạo bản clone;
+  else (tạo mới)
+    :Soạn deck mới;
+  endif
+  :Lưu deck có ít nhất 2 lá;
+endif
+:Tạo phòng bằng snapshot deck;
+:Mời người chơi và bắt đầu game;
+stop
+@enduml

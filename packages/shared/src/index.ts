@@ -206,9 +206,29 @@ export interface Session {
   token: string;
   playerId: string;
   name: string;
+  /** Username only exists for registered accounts; legacy sessions omit it. */
+  username?: string;
+  /** Phiên quản trị đăng nhập qua form đăng nhập bằng tài khoản admin. */
+  isAdmin?: boolean;
   roomId?: string;
 }
-export type Reply<T> = { ok: true; data: T } | { ok: false; code: string; message: string };
+export interface Profile {
+  username: string;
+  displayName: string;
+  onlineHours: number;
+  deckCount: number;
+  displayNameChangeAllowedAt: number;
+}
+export interface OwnedDeck {
+  id: string;
+  name: string;
+  packId: string;
+  cards: Card[];
+  createdAt: number;
+  updatedAt: number;
+}
+export type Reply<T> =
+  { ok: true; data: T } | { ok: false; code: string; message: string; nextAllowedAt?: number };
 
 /** Thông tin một phòng dưới góc nhìn quản trị. */
 export interface AdminRoom {

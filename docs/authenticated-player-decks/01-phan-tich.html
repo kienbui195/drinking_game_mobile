@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>Phân tích: Tài khoản và bộ bài cá nhân</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root { color-scheme: light only; }
+    </style>
+  </head>
+  <body class="bg-slate-100 text-slate-800">
+    <aside class="fixed inset-y-0 left-0 hidden w-72 overflow-y-auto border-r border-slate-200 bg-white p-6 lg:block">
+      <p class="text-xs font-bold tracking-widest text-indigo-700">CHAM LY · PHAN TICH</p>
+      <h1 class="mt-2 text-xl font-black text-slate-900">Tài khoản và bộ bài cá nhân</h1>
+      <nav class="mt-8 space-y-2 text-sm">
+        <a class="block text-slate-600 hover:text-indigo-700" href="#tom-tat">Tóm tắt</a>
+        <a class="block text-slate-600 hover:text-indigo-700" href="#boi-canh">Bối cảnh</a>
+        <a class="block text-slate-600 hover:text-indigo-700" href="#van-de">Vấn đề và nhu cầu</a>
+        <a class="block text-slate-600 hover:text-indigo-700" href="#pham-vi">Phạm vi</a>
+        <a class="block text-slate-600 hover:text-indigo-700" href="#gia-tri">Giá trị và ràng buộc</a>
+        <a class="block text-slate-600 hover:text-indigo-700" href="#can-xac-nhan">Cần xác nhận</a>
+      </nav>
+      <div class="mt-8 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs leading-6 text-slate-600">
+        <p class="font-semibold text-slate-800">Tài liệu trong series</p>
+        <p>0. <a class="text-indigo-700 hover:underline" href="00-state.md">Trạng thái pipeline</a></p>
+        <p class="font-semibold text-slate-900">1. Phân tích nghiệp vụ</p>
+        <p>2. <a class="text-indigo-700 hover:underline" href="02-giai-phap-us-ac.html">Giải pháp + US/AC</a></p>
+        <p>3. <a class="text-indigo-700 hover:underline" href="03-so-do.html">Sơ đồ</a></p>
+        <p>5. <a class="text-indigo-700 hover:underline" href="05-bao-cao-test.html">Báo cáo test</a></p>
+      </div>
+    </aside>
+    <main class="min-h-screen p-5 lg:ml-72 lg:p-10">
+      <div class="mb-8 border-b border-slate-200 pb-8">
+        <p class="text-sm font-bold text-indigo-700">BƯỚC 1 · CHỜ DUYỆT CỔNG 1</p>
+        <h1 class="mt-2 text-3xl font-black tracking-tight text-slate-950">Tài khoản người chơi và bộ bài cá nhân</h1>
+        <p class="mt-3 max-w-4xl text-lg leading-8 text-slate-600">Thay đổi này chuyển Chạm Ly từ trải nghiệm nhận diện tạm thời bằng tên sang tài khoản do backend quản lý. Mỗi tài khoản có thể lưu và dùng lại các bộ bài riêng theo từng game, thay vì nội dung chỉ sống trong một phòng chơi.</p>
+      </div>
+
+      <section id="tom-tat" class="mb-8">
+        <h2 class="text-2xl font-bold text-slate-950">Tóm tắt nhanh</h2>
+        <div class="mt-4 grid gap-4 md:grid-cols-4">
+          <div class="rounded-xl border border-indigo-100 bg-indigo-50 p-5"><p class="font-bold text-indigo-950">1. Tạo tài khoản</p><p class="mt-2 text-sm leading-6 text-indigo-900">Người chơi đăng ký và đăng nhập thay cho việc chỉ nhập một tên hiển thị.</p></div>
+          <div class="rounded-xl border border-violet-100 bg-violet-50 p-5"><p class="font-bold text-violet-950">2. Sở hữu bộ bài</p><p class="mt-2 text-sm leading-6 text-violet-900">Bộ bài được gắn với tài khoản và game tương ứng, không gắn với một phòng.</p></div>
+          <div class="rounded-xl border border-emerald-100 bg-emerald-50 p-5"><p class="font-bold text-emerald-950">3. Tạo từ mẫu hoặc mới</p><p class="mt-2 text-sm leading-6 text-emerald-900">Có thể clone bộ mặc định hệ thống để chỉnh sửa, hoặc tạo bộ bài trống theo ý riêng.</p></div>
+          <div class="rounded-xl border border-amber-100 bg-amber-50 p-5"><p class="font-bold text-amber-950">4. Chọn khi mở phòng</p><p class="mt-2 text-sm leading-6 text-amber-900">Chủ phòng chọn một bộ bài thuộc quyền sở hữu để bắt đầu phiên chơi.</p></div>
+        </div>
+      </section>
+
+      <section id="boi-canh" class="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 class="text-2xl font-bold text-slate-950">Bối cảnh hiện tại</h2>
+        <p class="mt-3 leading-7">Chạm Ly là ứng dụng Expo đa nền tảng với backend NestJS, Socket.IO và MySQL 8.4. Người chơi hiện nhập tên để nhận một phiên 30 ngày; token phiên được lưu trên thiết bị. Backend chỉ lưu tên trong bảng <code class="rounded bg-slate-100 px-1">sessions</code>, chưa có thực thể tài khoản, thông tin đăng nhập hay quyền sở hữu nội dung.</p>
+        <p class="mt-3 leading-7">Mỗi game có một bộ mặc định do hệ thống cung cấp. Khi mở phòng, backend đọc bộ mặc định của game rồi sao chép vào trạng thái riêng của phòng. Chủ phòng có thể thêm, sửa, xóa lá trong lobby, nhưng bản chỉnh sửa này chỉ thuộc phòng đang mở và biến mất cùng phòng sau thời gian hết hạn. Bộ mặc định không bị sửa trực tiếp.</p>
+        <p class="mt-4 text-xs text-slate-500">Bằng chứng kỹ thuật: <code>apps/api/src/store.ts:70-83, 106-135, 137-184</code>; <code>apps/mobile/src/App.tsx:305-335, 428-490</code>; <code>apps/mobile/src/DeckEditor.tsx:8-240</code>.</p>
+      </section>
+
+      <section id="van-de" class="mb-8 grid gap-5 xl:grid-cols-2">
+        <div class="rounded-2xl border border-rose-200 bg-rose-50 p-6">
+          <h2 class="text-2xl font-bold text-rose-950">Vấn đề</h2>
+          <ul class="mt-4 list-disc space-y-3 pl-5 leading-7 text-rose-950">
+            <li>Tên và token hiện tại chỉ nhận diện một phiên trên một thiết bị, không đại diện cho một người dùng có thể quay lại trên thiết bị khác.</li>
+            <li>Công sức biên soạn bộ bài bị khóa trong phòng. Muốn dùng lại ở game sau phải tạo lại hoặc chỉnh lại từ đầu.</li>
+            <li>Không có nơi để xem, đặt tên, cập nhật hoặc tổ chức các bộ bài cá nhân theo từng game.</li>
+            <li>Màn tạo phòng chỉ cho chọn chủ đề game; chưa có bước chọn bộ bài cụ thể để dùng cho phòng.</li>
+          </ul>
+        </div>
+        <div class="rounded-2xl border border-emerald-200 bg-emerald-50 p-6">
+          <h2 class="text-2xl font-bold text-emerald-950">Nhu cầu thực sự</h2>
+          <ul class="mt-4 list-disc space-y-3 pl-5 leading-7 text-emerald-950">
+            <li>Nhận diện người chơi bền vững bằng tài khoản do server quản lý.</li>
+            <li>Cho phép một người chơi xây dựng thư viện bộ bài riêng theo từng game.</li>
+            <li>Rút ngắn thời gian bắt đầu game bằng bộ bài mẫu có thể clone, đồng thời vẫn hỗ trợ sáng tạo từ bộ bài mới.</li>
+            <li>Giữ bộ mặc định của hệ thống làm nội dung chuẩn, tách biệt với nội dung cá nhân.</li>
+          </ul>
+        </div>
+      </section>
+
+      <section id="pham-vi" class="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 class="text-2xl font-bold text-slate-950">Phạm vi bước tiếp theo</h2>
+        <div class="mt-5 grid gap-5 lg:grid-cols-2">
+          <div><h3 class="font-bold text-emerald-800">Trong phạm vi</h3><ul class="mt-3 list-disc space-y-2 pl-5 leading-7"><li>Đăng ký, đăng nhập, duy trì phiên và đăng xuất tài khoản người chơi.</li><li>Hồ sơ tối thiểu gồm định danh và tên hiển thị.</li><li>Thư viện bộ bài thuộc một tài khoản và một game.</li><li>Tạo bộ bài mới; clone bộ mặc định rồi chỉnh sửa; sửa, xóa và chọn bộ bài cá nhân khi tạo phòng.</li><li>Khởi tạo phòng bằng một snapshot của bộ bài đã chọn để game đang chơi không bị ảnh hưởng bởi lần sửa sau đó.</li><li>Kiểm soát quyền: chỉ chủ sở hữu được xem và thay đổi bộ bài cá nhân.</li></ul></div>
+          <div><h3 class="font-bold text-slate-700">Ngoài phạm vi mặc định</h3><ul class="mt-3 list-disc space-y-2 pl-5 leading-7"><li>Chia sẻ, đồng biên tập, công khai hoặc mua bán bộ bài giữa nhiều tài khoản.</li><li>Đổi mật khẩu, quên mật khẩu, xác minh email, đăng nhập mạng xã hội và xác thực hai lớp.</li><li>Phân quyền quản trị nội dung mặc định thay cho cổng admin hiện có.</li><li>Di chuyển dữ liệu cũ từ các phiên chỉ có tên sang tài khoản, vì hiện chưa có thông tin xác minh để ghép chính xác.</li><li>Thay đổi luật chơi, realtime room hoặc cơ chế túi thần kỳ.</li></ul></div>
+        </div>
+      </section>
+
+      <section id="gia-tri" class="mb-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 class="text-2xl font-bold text-slate-950">Đối tượng, giá trị và ràng buộc</h2>
+        <div class="mt-5 grid gap-5 lg:grid-cols-3">
+          <div><h3 class="font-bold text-indigo-800">Đối tượng liên quan</h3><p class="mt-2 leading-7">Người chơi sở hữu tài khoản và bộ bài; chủ phòng chọn bộ bài để chơi; người tham gia nhận snapshot của bộ bài trong phòng; backend xác thực và kiểm soát quyền; MySQL lưu dữ liệu lâu dài.</p></div>
+          <div><h3 class="font-bold text-indigo-800">Giá trị kỳ vọng</h3><p class="mt-2 leading-7">Nội dung tự tạo được tái sử dụng qua nhiều phòng và thiết bị. Thời gian chuẩn bị một buổi chơi giảm vì có thể lấy mẫu hệ thống hoặc dùng ngay bộ bài đã có. Quyền sở hữu rõ ràng giúp mở đường cho các tính năng chia sẻ sau này.</p></div>
+          <div><h3 class="font-bold text-indigo-800">Ràng buộc đã biết</h3><p class="mt-2 leading-7">Ứng dụng đang dùng MySQL, NestJS và Socket.IO. Bộ mặc định hiện được seed vào MySQL theo từng game. Engine dùng một mảng lá bài snapshot trong state phòng; thiết kế mới cần giữ đặc tính này để phiên đang chơi ổn định.</p></div>
+        </div>
+      </section>
+
+      <section id="can-xac-nhan" class="rounded-2xl border border-amber-200 bg-amber-50 p-6">
+        <h2 class="text-2xl font-bold text-amber-950">Giả định cần xác nhận ở Cổng 1</h2>
+        <ol class="mt-4 list-decimal space-y-3 pl-5 leading-7 text-amber-950">
+          <li>Tài khoản tối thiểu dùng tên hiển thị, email hoặc username và mật khẩu. Kênh định danh chính chưa được chỉ định.</li>
+          <li>Một tài khoản có thể có nhiều bộ bài cho cùng một game; mỗi bộ bài chỉ thuộc một tài khoản.</li>
+          <li>Clone tạo bản sao độc lập. Thay đổi về sau của bộ mặc định không tự ghi đè bản clone.</li>
+          <li>Phòng chỉ dùng bộ bài của người tạo phòng. Các người chơi khác không thể thay bộ bài sau khi tham gia.</li>
+          <li>Một bộ bài mới cần tối thiểu hai lá trước khi có thể dùng để tạo phòng, theo ràng buộc editor hiện tại.</li>
+          <li>Các phiên cũ không được chuyển đổi thành tài khoản tự động; người chơi cũ cần đăng ký lại.</li>
+        </ol>
+      </section>
+
+      <div class="mt-16 flex items-center justify-between border-t border-slate-200 pt-6 text-sm"><a class="text-indigo-700 hover:underline" href="00-state.md">← Tài liệu trước: Trạng thái pipeline</a><a class="text-indigo-700 hover:underline" href="02-giai-phap-us-ac.html">Tài liệu tiếp theo: Giải pháp + US/AC →</a></div>
+    </main>
+  </body>
+</html>

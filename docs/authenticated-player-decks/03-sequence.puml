@@ -1,0 +1,43 @@
+@startuml
+title Thiết kế dự kiến - Đăng ký, hồ sơ và tạo phòng
+actor "Người chơi" as User
+participant "Ứng dụng\nExpo" as App
+participant "API\nNestJS + Socket.IO" as Api
+database "MySQL" as Db
+== A. Đăng ký ==
+User -> App: dangKy(displayName, password)
+App -> Api: POST /auth/register
+Api -> Db: tìm username base và hậu tố kế tiếp
+Api -> Db: ghi users(username, display_name, password_hash)
+Api -> Db: ghi auth_sessions(token_hash, expires_at)
+Api --> App: 201 { token, user }
+== B. Trang cá nhân ==
+User -> App: moTrangCaNhan()
+App -> Api: profile:get(session token)
+Api -> Db: đọc user, tổng online duration,
+Api --> App: username, displayName, statistics
+alt đổi tên hiển thị
+  App -> Api: profile:changeDisplayName(name)
+  Api -> Db: đọc last_display_name_change_at
+  alt đã đủ 7 ngày
+    Api -> Db: cập nhật display_name, last_display_name_change_at
+    Api --> App: profile mới
+  else chưa đủ 7 ngày
+    Api --> App: 429 DISPLAY_NAME_COOLDOWN + nextAllowedAt
+  end
+else đổi mật khẩu
+  App -> Api: profile:changePassword(current, next)
+  Api -> Db: đọc password_hash và cập nhật hash mới
+  Api --> App: thành công hoặc 401 UNAUTHORIZED
+end
+== C. Tạo deck và phòng ==
+User -> App: taoPhong(name, password, deckId)
+App -> Api: room:create { name, password, deckId }
+Api -> Db: đọc deck theo deckId + owner_user_id
+alt deck thuộc chủ phòng và có >= 2 lá
+  Api -> Db: ghi rooms.state với snapshot cards
+  Api --> App: room state
+else deck không hợp lệ
+  Api --> App: 403 FORBIDDEN hoặc 422 DECK_INVALID
+end
+@enduml

@@ -4,6 +4,7 @@ import type { Socket } from 'socket.io-client';
 import { packById, type AdminOverview, type AdminRoom } from '@chamly/shared';
 import { request } from './connection';
 import { Button, Copy, Field, Heading, Panel } from './ui';
+import { Toast } from './Toast';
 
 const clock = (ms: number) => {
   const total = Math.max(0, Math.round(ms / 1000));
@@ -119,8 +120,21 @@ export function AdminDashboard({ socket, onExit }: { socket: Socket; onExit: () 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
+  const [sent, setSent] = useState('');
   const [auto, setAuto] = useState(true);
   const [now, setNow] = useState(Date.now());
+  // Toast báo thành công tự ẩn sau 3s.
+  useEffect(() => {
+    if (!sent) return;
+    const t = setTimeout(() => setSent(''), 3000);
+    return () => clearTimeout(t);
+  }, [sent]);
+  // Toast lỗi tự ẩn sau 5s; lỗi mới hẹn lại từ đầu.
+  useEffect(() => {
+    if (!error) return;
+    const t = setTimeout(() => setError(''), 5000);
+    return () => clearTimeout(t);
+  }, [error]);
   const load = useCallback(async () => {
     try {
       setData(await request<AdminOverview>(socket, 'admin:overview'));
@@ -145,8 +159,10 @@ export function AdminDashboard({ socket, onExit }: { socket: Socket; onExit: () 
     try {
       await request(socket, event, body);
       await load();
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Thao tác thất bại.');
+      return false;
     } finally {
       setBusy(false);
     }
@@ -171,15 +187,8 @@ export function AdminDashboard({ socket, onExit }: { socket: Socket; onExit: () 
         contentContainerStyle={{ padding: 16, gap: 16, paddingBottom: 24 }}
         keyboardShouldPersistTaps="handled"
       >
-        {!!error && (
-          <View
-            accessibilityRole="alert"
-            className="bg-rose-950 border border-rose-800 rounded-2xl p-4 gap-3"
-          >
-            <Text className="text-rose-200">{error}</Text>
-            <Button title="Đóng thông báo" secondary onPress={() => setError('')} />
-          </View>
-        )}
+        {!!error && <Toast tone="error" message={error} onClose={() => setError('')} />}
+        {!!sent && <Toast tone="success" message={sent} onClose={() => setSent('')} />}
         <View className="flex-row flex-wrap gap-3">
           <Stat label="Kết nối đang mở" value={data?.connections ?? '—'} />
           <Stat label="Người đang online" value={data?.onlinePlayers ?? '—'} />
@@ -223,8 +232,9 @@ export function AdminDashboard({ socket, onExit }: { socket: Socket; onExit: () 
             title="Gửi thông báo"
             disabled={busy || !notice.trim()}
             onPress={async () => {
-              await act('admin:notice', { message: notice.trim() });
+              const ok = await act('admin:notice', { message: notice.trim() });
               setNotice('');
+              if (ok) setSent('Đã gửi thông báo tới mọi người chơi.');
             }}
           />
         </Panel>

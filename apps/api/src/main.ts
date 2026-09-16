@@ -3,7 +3,8 @@ import { Body, Controller, Get, HttpException, Inject, Module, Post } from '@nes
 import { NestFactory } from '@nestjs/core';
 import { Store } from './store';
 import { GameGateway, originAllowed } from './gateway';
-import { nameSchema } from './validation';
+import { GameError } from './engine';
+import { accountSchema, loginSchema, nameSchema } from './validation';
 
 @Controller()
 class AppController {
@@ -16,6 +17,26 @@ class AppController {
     const parsed = nameSchema.safeParse(body);
     if (!parsed.success) throw new HttpException('Tên cần từ 1 đến 30 ký tự.', 400);
     return this.store.createIdentity(parsed.data.name);
+  }
+  @Post('auth/register') async register(@Body() body: unknown) {
+    const parsed = accountSchema.safeParse(body);
+    if (!parsed.success) throw new HttpException('Tên hiển thị hoặc mật khẩu không hợp lệ.', 400);
+    try {
+      return await this.store.register(parsed.data.displayName, parsed.data.password);
+    } catch (error) {
+      if (error instanceof GameError) throw new HttpException(error.message, 400);
+      throw error;
+    }
+  }
+  @Post('auth/login') async login(@Body() body: unknown) {
+    const parsed = loginSchema.safeParse(body);
+    if (!parsed.success) throw new HttpException('Username hoặc mật khẩu không hợp lệ.', 400);
+    try {
+      return await this.store.login(parsed.data.username, parsed.data.password);
+    } catch (error) {
+      if (error instanceof GameError) throw new HttpException(error.message, 401);
+      throw error;
+    }
   }
 }
 @Module({ controllers: [AppController], providers: [Store, GameGateway] })

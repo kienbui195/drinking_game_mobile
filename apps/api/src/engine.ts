@@ -12,6 +12,7 @@ export class GameError extends Error {
   constructor(
     public code: string,
     message: string,
+    public nextAllowedAt?: number,
   ) {
     super(message);
   }
