@@ -1,26 +1,8 @@
+# Web tĩnh trong image chamly-web. Định tuyến API do Caddy của VPS lo (deploy/chamly.caddy).
 :80 {
     encode zstd gzip
-
-    handle /socket.io/* {
-        reverse_proxy api:45100
-    }
-
-    handle /health {
-        reverse_proxy api:45100
-    }
-
-    handle /sessions {
-        reverse_proxy api:45100
-    }
-
-    handle /auth/* {
-        reverse_proxy api:45100
-    }
-
-    handle {
-        root * /srv
-        header /index.html Cache-Control "no-cache"
-        try_files {path} /index.html
-        file_server
-    }
+    header /index.html Cache-Control "no-cache"
+    root * /srv
+    try_files {path} /index.html
+    file_server
 }
