@@ -1,5 +1,6 @@
 # Chạy trên VPS (/srv/apps/chamly): cần mạng Docker `appnet`, database tạo bằng `vps db-create chamly`
-# và /srv/secrets/chamly.app.env (ADMIN_PASSWORD=...). `svc` dùng file này thay cho compose.yaml (stack dev local).
+# và /srv/secrets/chamly.admin.env (ADMIN_API_TOKEN cho dashboard chung admin.baodom.xyz).
+# `svc` dùng file này thay cho compose.yaml (stack dev local).
 # Deploy: git push rồi `vps release chamly`. Caddy máy chủ: deploy/chamly.caddy.
 name: chamly
 services:
@@ -13,7 +14,7 @@ services:
     init: true
     env_file:
       - /srv/secrets/chamly.db.env
-      - /srv/secrets/chamly.app.env
+      - /srv/secrets/chamly.admin.env
     environment:
       NODE_ENV: production
       API_PORT: '3000'

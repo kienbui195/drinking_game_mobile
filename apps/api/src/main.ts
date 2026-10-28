@@ -1,9 +1,11 @@
 import 'reflect-metadata';
 import { Body, Controller, Get, HttpException, Inject, Module, Post } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Store } from './store';
 import { GameGateway, originAllowed } from './gateway';
 import { GameError } from './engine';
+import { adminBody, AdminApiController } from './admin-api';
 import { accountSchema, loginSchema, nameSchema } from './validation';
 
 @Controller()
@@ -39,14 +41,26 @@ class AppController {
     }
   }
 }
-@Module({ controllers: [AppController], providers: [Store, GameGateway] })
+@Module({ controllers: [AppController, AdminApiController], providers: [Store, GameGateway] })
 class AppModule {}
+/** Cấu hình HTTP dùng chung cho máy chủ thật và test /admin-api. */
+export function setupHttp(app: NestExpressApplication) {
+  // /admin-api chỉ dành cho dashboard gọi trong mạng Docker: không bao giờ trả header CORS.
+  app.enableCors(
+    (
+      req: { url?: string; headers: { origin?: string } },
+      cb: (error: Error | null, options: { origin: boolean }) => void,
+    ) =>
+      cb(null, {
+        origin: !req.url?.startsWith('/admin-api') && originAllowed(req.headers.origin),
+      }),
+  );
+  app.use('/admin-api', adminBody);
+  app.useBodyParser('json');
+}
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
-  app.enableCors({
-    origin: (origin: string | undefined, cb: (error: Error | null, allow: boolean) => void) =>
-      cb(null, originAllowed(origin)),
-  });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+  setupHttp(app);
   const limits = new Map<string, { count: number; until: number }>();
   app.use(
     '/sessions',
@@ -69,4 +83,5 @@ async function bootstrap() {
   app.enableShutdownHooks();
   await app.listen(Number(process.env.API_PORT ?? 45100), '0.0.0.0');
 }
-void bootstrap();
+// Test chỉ import setupHttp, không khởi động máy chủ.
+if (require.main === module) void bootstrap();

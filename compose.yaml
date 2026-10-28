@@ -35,9 +35,8 @@ services:
       MYSQL_USER: ${MYSQL_USER:-chamly}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD:-local-app-change-me}
       API_PORT: 45100
-      ADMIN_USERNAME: ${ADMIN_USERNAME:-adminserverday}
-      ADMIN_ROOM_NAME: ${ADMIN_ROOM_NAME:-adminserverday}
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+      # Token cho dashboard chung gọi /admin-api (>= 32 ký tự); để trống thì /admin-api từ chối hết.
+      ADMIN_API_TOKEN: ${ADMIN_API_TOKEN:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:45102,http://localhost:45103}
     ports:
       - '${API_PORT:-45100}:45100'

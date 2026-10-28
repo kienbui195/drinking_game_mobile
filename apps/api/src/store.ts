@@ -39,19 +39,6 @@ export interface Identity {
   name: string;
   userId?: string;
   username?: string;
-  isAdmin?: boolean;
-}
-/** Tài khoản quản trị giữ nguyên như trước: username mặc định là tên phòng admin cũ. */
-export const adminUsername = () =>
-  process.env.ADMIN_USERNAME ?? process.env.ADMIN_ROOM_NAME ?? 'adminserverday';
-export const adminPassword = () => process.env.ADMIN_PASSWORD ?? '';
-/** So sánh không phụ thuộc độ dài chuỗi, tránh rò rỉ thông tin qua thời gian phản hồi. */
-function adminPasswordMatches(input: string): boolean {
-  const expected = adminPassword();
-  if (!expected) return false;
-  const a = Buffer.from(input);
-  const b = Buffer.from(expected);
-  return a.length === b.length && timingSafeEqual(a, b);
 }
 export interface StoredRoom {
   id: string;
@@ -129,7 +116,6 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     for (const [column, definition] of [
       ['user_id', 'user_id CHAR(36) NULL'],
       ['started_at', 'started_at BIGINT NULL'],
-      ['is_admin', 'is_admin TINYINT(1) NOT NULL DEFAULT 0'],
     ]) {
       const [columns] = await this.pool.execute<RowDataPacket[]>(
         `SELECT 1 FROM information_schema.columns
@@ -161,6 +147,15 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     await this.pool.query(`CREATE TABLE IF NOT EXISTS default_decks (
       id VARCHAR(40) PRIMARY KEY, cards JSON NOT NULL, revision INT NOT NULL DEFAULT 0,
       group_cards_seeded TINYINT(1) NOT NULL DEFAULT 0)`);
+    // Quản trị đã chuyển sang dashboard chung (admin.baodom.xyz): thu hồi các phiên admin cũ.
+    const [adminColumn] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'sessions' AND column_name = 'is_admin'`,
+    );
+    if (adminColumn[0]) {
+      await this.pool.query('DELETE FROM sessions WHERE is_admin = 1');
+      await this.pool.query('ALTER TABLE sessions DROP COLUMN is_admin');
+    }
     const [deckRevision] = await this.pool.execute<RowDataPacket[]>(
       `SELECT 1 FROM information_schema.columns
        WHERE table_schema = DATABASE() AND table_name = 'default_decks' AND column_name = 'revision'`,
@@ -318,7 +313,7 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       'Phiên đăng nhập không hợp lệ.',
     );
     const [rows] = await this.pool.execute<RowDataPacket[]>(
-      `SELECT sessions.id, sessions.name, sessions.user_id, sessions.is_admin, users.username
+      `SELECT sessions.id, sessions.name, sessions.user_id, users.username
        FROM sessions LEFT JOIN users ON users.id = sessions.user_id
        WHERE sessions.token_hash = ? AND sessions.expires_at > ?`,
       [hash(token), Date.now()],
@@ -328,28 +323,18 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       id: rows[0].id,
       name: rows[0].name,
       ...(rows[0].user_id ? { userId: rows[0].user_id, username: rows[0].username } : {}),
-      ...(Number(rows[0].is_admin) === 1 ? { isAdmin: true as const } : {}),
     };
   }
-  private async createSession(
-    user: { id?: string; displayName: string; username: string },
-    isAdmin = false,
-  ) {
+  private async createSession(user: { id: string; displayName: string; username: string }) {
     const token = randomBytes(32).toString('hex');
     const id = randomUUID();
     const now = Date.now();
     await this.pool.execute(
-      `INSERT INTO sessions (id, token_hash, name, expires_at, user_id, started_at, is_admin)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, hash(token), user.displayName, now + sessionTtl, user.id ?? null, now, Number(isAdmin)],
+      `INSERT INTO sessions (id, token_hash, name, expires_at, user_id, started_at)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [id, hash(token), user.displayName, now + sessionTtl, user.id, now],
     );
-    return {
-      token,
-      playerId: id,
-      name: user.displayName,
-      username: user.username,
-      ...(isAdmin ? { isAdmin: true as const } : {}),
-    };
+    return { token, playerId: id, name: user.displayName, username: user.username };
   }
   async register(displayName: string, password: string) {
     const id = randomUUID();
@@ -357,8 +342,6 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     const now = Date.now();
     for (let suffix = 0; suffix < 10_000; suffix++) {
       const username = suffix ? `${base}-${suffix}` : base;
-      // Giữ username quản trị cho tài khoản admin đăng nhập qua form đăng nhập.
-      if (username.toLowerCase() === adminUsername().toLowerCase()) continue;
       try {
         await this.pool.execute(
           `INSERT INTO users (id, username, display_name, password_hash, display_name_changed_at, created_at)
@@ -373,9 +356,6 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     throw new GameError('USERNAME_UNAVAILABLE', 'Không thể tạo username. Hãy thử lại.');
   }
   async login(username: string, password: string) {
-    // Một form đăng nhập duy nhất: đúng username + mật khẩu admin thì vào thẳng phiên quản trị.
-    if (username.trim().toLowerCase() === adminUsername().toLowerCase())
-      return this.adminLogin(username, password);
     const [rows] = await this.pool.execute<RowDataPacket[]>(
       'SELECT id, username, display_name, password_hash FROM users WHERE username = ?',
       [username.trim().toLowerCase()],
@@ -390,19 +370,6 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       username: rows[0].username,
       displayName: rows[0].display_name,
     });
-  }
-  /** Đăng nhập quản trị qua form đăng nhập, tài khoản giữ nguyên như trước. */
-  async adminLogin(username: string, password: string) {
-    ensure(
-      username.trim().toLowerCase() === adminUsername().toLowerCase() &&
-        adminPasswordMatches(password),
-      'UNAUTHORIZED',
-      'Username hoặc mật khẩu không đúng.',
-    );
-    return this.createSession(
-      { displayName: 'Quản Trị', username: adminUsername().toLowerCase() },
-      true,
-    );
   }
   private async recordSessionDuration(
     sessionId: string,
@@ -425,7 +392,7 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       [hash(String(token))],
     );
     if (rows[0]) {
-      // Phiên quản trị không gắn với tài khoản user nên chỉ cần xóa, không ghi thời lượng.
+      // Phiên khách (chưa có tài khoản) chỉ cần xóa, không ghi thời lượng.
       if (rows[0].user_id)
         await this.recordSessionDuration(
           rows[0].id,
@@ -533,6 +500,103 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       'Bộ bài vừa thay đổi. Hãy tải lại rồi sửa.',
     );
     return this.systemDeck(packId);
+  }
+  /** Sửa bộ bài hệ thống trong một giao dịch khóa hàng; dashboard chung dùng cho thêm/sửa/xóa lá. */
+  async editSystemDeck(packId: string, edit: (cards: Card[]) => Card[]): Promise<SystemDeck> {
+    ensure(PACK_DECKS[packId], 'VALIDATION', 'Game không hợp lệ.');
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.execute<RowDataPacket[]>(
+        'SELECT cards FROM default_decks WHERE id = ? FOR UPDATE',
+        [packId],
+      );
+      ensure(rows[0], 'DECK_NOT_FOUND', 'Không tìm thấy bộ bài mặc định.');
+      const cards = edit(decode<Card[]>(rows[0].cards));
+      this.validateDeckCards(packId, cards);
+      ensure(cards.length >= 2 && cards.length <= 200, 'VALIDATION', 'Bộ bài cần từ 2 đến 200 lá.');
+      await conn.execute(
+        'UPDATE default_decks SET cards = ?, revision = revision + 1 WHERE id = ?',
+        [JSON.stringify(cards), packId],
+      );
+      await conn.commit();
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+    return this.systemDeck(packId);
+  }
+  /** Ghi nhiều bộ bài hệ thống trong một giao dịch (nhập CSV/JSON từ dashboard). */
+  async replaceSystemDecks(decks: Record<string, Card[]>) {
+    for (const [packId, cards] of Object.entries(decks)) {
+      this.validateDeckCards(packId, cards);
+      ensure(cards.length >= 2 && cards.length <= 200, 'VALIDATION', 'Bộ bài cần từ 2 đến 200 lá.');
+    }
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      for (const [packId, cards] of Object.entries(decks)) {
+        const [rows] = await conn.execute<RowDataPacket[]>(
+          'SELECT cards FROM default_decks WHERE id = ? FOR UPDATE',
+          [packId],
+        );
+        // Chỉ tăng revision khi bộ bài thật sự đổi, để client đang mở bộ cũ không bị báo xung đột oan.
+        if (JSON.stringify(decode<Card[]>(rows[0]?.cards ?? '[]')) !== JSON.stringify(cards))
+          await conn.execute(
+            'UPDATE default_decks SET cards = ?, revision = revision + 1 WHERE id = ?',
+            [JSON.stringify(cards), packId],
+          );
+      }
+      await conn.commit();
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+  /** Đổi tên hiển thị từ dashboard: không áp thời gian chờ 7 ngày như khi người chơi tự đổi. */
+  async adminRenameUser(userId: string, displayName: string): Promise<boolean> {
+    const [result] = await this.pool.execute<mysql.ResultSetHeader>(
+      'UPDATE users SET display_name = ? WHERE id = ?',
+      [displayName, userId],
+    );
+    if (!result.affectedRows) return false;
+    await this.pool.execute('UPDATE sessions SET name = ? WHERE user_id = ?', [
+      displayName,
+      userId,
+    ]);
+    return true;
+  }
+  /** Xóa tài khoản cùng bộ bài cá nhân, phiên đăng nhập và thống kê thời gian online. */
+  async adminDeleteUser(userId: string): Promise<boolean> {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      await conn.execute(
+        'DELETE FROM deck_cards WHERE deck_id IN (SELECT id FROM user_decks WHERE user_id = ?)',
+        [userId],
+      );
+      await conn.execute('DELETE FROM user_decks WHERE user_id = ?', [userId]);
+      await conn.execute('DELETE FROM sessions WHERE user_id = ?', [userId]);
+      await conn.execute('DELETE FROM session_durations WHERE user_id = ?', [userId]);
+      const [result] = await conn.execute<mysql.ResultSetHeader>('DELETE FROM users WHERE id = ?', [
+        userId,
+      ]);
+      await conn.commit();
+      return result.affectedRows > 0;
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
+  async countUsers(): Promise<number> {
+    const [rows] = await this.pool.execute<RowDataPacket[]>('SELECT COUNT(*) AS total FROM users');
+    return Number(rows[0]?.total ?? 0);
   }
   private validateDeckCards(packId: string, cards: Card[]) {
     const pack = packById(packId);
@@ -688,7 +752,7 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     );
     return room;
   }
-  /** Số phiên đăng nhập còn hiệu lực; dùng cho bảng quản trị. */
+  /** Số phiên đăng nhập còn hiệu lực; dùng cho dashboard quản trị. */
   async countSessions(): Promise<number> {
     const [rows] = await this.pool.execute<RowDataPacket[]>(
       'SELECT COUNT(*) AS total FROM sessions WHERE expires_at > ?',

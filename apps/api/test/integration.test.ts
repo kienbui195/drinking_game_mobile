@@ -487,8 +487,8 @@ test(
 );
 
 test(
-  'admin edits system decks; new rooms and user clones take snapshots while old ones stay intact',
-  { timeout: 30_000, skip: !process.env.ADMIN_PASSWORD },
+  'hub edits system decks via /admin-api; new rooms and user clones take snapshots while old ones stay intact',
+  { timeout: 30_000, skip: !process.env.ADMIN_API_TOKEN },
   async (t) => {
     const packId = 'kien-thuc';
     const store = new Store();
@@ -496,20 +496,20 @@ test(
     const original = await store.systemDeck(packId);
     const createdRooms: string[] = [];
     const createdDecks: string[] = [];
-    const response = await fetch(`${url}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: process.env.ADMIN_USERNAME ?? process.env.ADMIN_ROOM_NAME ?? 'adminserverday',
-        password: process.env.ADMIN_PASSWORD,
-      }),
-    });
-    assert.equal(response.status, 201);
-    const adminSession: Session = await response.json();
+    const hub = (
+      method: string,
+      path: string,
+      body?: unknown,
+      token = process.env.ADMIN_API_TOKEN,
+    ) =>
+      fetch(`${url}/admin-api${path}`, {
+        method,
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      });
     const userSession = await account(`Bộ Gốc ${randomUUID().slice(0, 6)}`);
-    const [admin, user] = await Promise.all([open(adminSession.token), open(userSession.token)]);
+    const user = await open(userSession.token);
     t.after(async () => {
-      admin.disconnect();
       user.disconnect();
       await store.pool.execute('UPDATE default_decks SET cards = ?, revision = ? WHERE id = ?', [
         JSON.stringify(original.cards),
@@ -524,10 +524,7 @@ test(
         'DELETE FROM user_decks WHERE user_id IN (SELECT id FROM users WHERE username = ?)',
         [userSession.username],
       );
-      await store.pool.execute('DELETE FROM sessions WHERE id IN (?, ?)', [
-        adminSession.playerId,
-        userSession.playerId,
-      ]);
+      await store.pool.execute('DELETE FROM sessions WHERE id = ?', [userSession.playerId]);
       await store.pool.execute('DELETE FROM users WHERE username = ?', [userSession.username]);
       await store.onModuleDestroy();
     });
@@ -540,44 +537,14 @@ test(
       }),
     );
     createdRooms.push(before.id);
-    assert.equal((await rpc(user, 'admin:systemDeck', { packId })).ok, false);
-    const draft = unwrap(
-      await rpc<{ cards: typeof original.cards; revision: number }>(admin, 'admin:systemDeck', {
-        packId,
-      }),
-    );
-    const cards = draft.cards.map((card, index) =>
-      index === 0 ? { ...card, title: 'Admin updated title' } : card,
-    );
-    assert.equal(
-      (await rpc(user, 'admin:updateSystemDeck', { packId, revision: draft.revision, cards })).ok,
-      false,
-    );
-    assert.equal(
-      (
-        await rpc(admin, 'admin:updateSystemDeck', {
-          packId,
-          revision: draft.revision,
-          cards: cards.map((card) => ({ ...card, category: 'challenge' })),
-        })
-      ).ok,
-      false,
-    );
-    const updated = unwrap(
-      await rpc<{ cards: typeof cards; revision: number }>(admin, 'admin:updateSystemDeck', {
-        packId,
-        revision: draft.revision,
-        cards,
-      }),
-    );
-    assert.equal(updated.revision, draft.revision + 1);
-    const stale = await rpc(admin, 'admin:updateSystemDeck', {
-      packId,
-      revision: draft.revision,
-      cards,
-    });
-    assert.equal(stale.ok, false);
-    if (!stale.ok) assert.equal(stale.code, 'STALE_REVISION');
+    // Socket của người chơi không còn đường quản trị nào.
+    await assert.rejects(rpc(user, 'admin:systemDeck', { packId }));
+    const key = `${packId}.${original.cards[0].id}`;
+    assert.equal((await hub('PUT', `/cards/${key}`, { title: 'x' }, 'wrong')).status, 401);
+    assert.equal((await hub('PUT', `/cards/${key}`, { category: 'challenge' })).status, 422);
+    const updated = await hub('PUT', `/cards/${key}`, { title: 'Admin updated title' });
+    assert.equal(updated.status, 200);
+    assert.equal((await store.systemDeck(packId)).revision, original.revision + 1);
     const after = unwrap(
       await rpc<RoomView>(user, 'room:create', {
         name: 'After admin edit',
@@ -594,14 +561,10 @@ test(
     );
     createdDecks.push(cloned.id);
     assert.equal(cloned.cards[0].title, 'Admin updated title');
-    const next = unwrap(
-      await rpc<{ cards: typeof cards; revision: number }>(admin, 'admin:updateSystemDeck', {
-        packId,
-        revision: updated.revision,
-        cards: original.cards,
-      }),
+    assert.equal(
+      (await hub('PUT', `/cards/${key}`, { title: original.cards[0].title })).status,
+      200,
     );
-    assert.equal(next.revision, updated.revision + 1);
     assert.equal((await store.read(after.id)).state.deck[0].title, 'Admin updated title');
     assert.equal(
       unwrap(await rpc<OwnedDeck>(user, 'decks:get', { deckId: cloned.id })).cards[0].title,

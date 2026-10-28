@@ -80,10 +80,3 @@ export const deckUpdateSchema = deckIdSchema.extend({
   name: text(60).optional(),
   cards: z.array(cardSchema).min(0).max(200).optional(),
 });
-export const systemDeckSchema = z.object({
-  packId: z.enum(packs.map((p) => p.id) as [string, ...string[]]),
-});
-export const systemDeckUpdateSchema = systemDeckSchema.extend({
-  revision: z.number().int().nonnegative(),
-  cards: z.array(cardSchema).min(2).max(200),
-});

@@ -11,14 +11,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { z, ZodError } from 'zod';
-import {
-  defaultPackId,
-  type SystemDeck,
-  type AdminOverview,
-  type AdminRoom,
-  type Reply,
-  type RoomView,
-} from '@chamly/shared';
+import { defaultPackId, type Reply, type RoomView } from '@chamly/shared';
 import { applyAction, GameError, ensure } from './engine';
 import { Store, type Identity, type StoredRoom } from './store';
 import {
@@ -32,8 +25,6 @@ import {
   displayNameSchema,
   joinSchema,
   passwordChangeSchema,
-  systemDeckSchema,
-  systemDeckUpdateSchema,
 } from './validation';
 
 export const allowedOrigins = () =>
@@ -55,10 +46,6 @@ export function originAllowed(origin?: string) {
   }
 }
 const roomIdSchema = z.object({ roomId: z.string().regex(/^[A-F0-9]{6}$/) });
-const adminRoomSchema = z.object({ roomId: z.string().regex(/^[A-F0-9]{6}$/) });
-const adminKickSchema = adminRoomSchema.extend({ playerId: z.string().max(80) });
-const adminRenameSchema = adminRoomSchema.extend({ name: z.string().trim().min(1).max(60) });
-const adminNoticeSchema = z.object({ message: z.string().trim().min(1).max(300) });
 @WebSocketGateway({
   cors: {
     origin: (origin: string | undefined, cb: (err: Error | null, allow: boolean) => void) =>
@@ -305,148 +292,87 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       return this.attach(socket, await this.store.join(input.roomId, identity, input.password));
     });
   }
-  /** Quyền quản trị gắn với phiên đăng nhập admin, nên còn hiệu lực sau khi reconnect. */
-  private requireAdmin(identity: Identity) {
-    ensure(identity.isAdmin === true, 'FORBIDDEN', 'Cần quyền quản trị.');
-  }
-  @SubscribeMessage('admin:systemDeck')
-  adminSystemDeck(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
-    return this.run(socket, (identity): Promise<SystemDeck> => {
-      this.requireAdmin(identity);
-      return this.store.systemDeck(systemDeckSchema.parse(body).packId);
-    });
-  }
-  @SubscribeMessage('admin:updateSystemDeck')
-  adminUpdateSystemDeck(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
-    return this.run(socket, (identity): Promise<SystemDeck> => {
-      this.requireAdmin(identity);
-      const input = systemDeckUpdateSchema.parse(body);
-      return this.store.updateSystemDeck(input.packId, input.revision, input.cards);
-    });
-  }
-  private adminRoomInfo(room: StoredRoom): AdminRoom {
-    const members = this.server.sockets.adapter.rooms.get(room.id) ?? new Set<string>();
-    const online = new Set(
+  // ---- Quản trị: dashboard chung gọi qua /admin-api (admin-api.ts), không còn qua socket.
+  private onlineIds(roomId: string) {
+    const members = this.server.sockets.adapter.rooms.get(roomId) ?? new Set<string>();
+    return new Set(
       [...members].map((id) => this.server.sockets.sockets.get(id)?.data.identity?.id),
     );
-    const s = room.state;
-    return {
-      id: room.id,
-      name: room.name,
-      packId: s.packId ?? defaultPackId,
-      phase: s.phase,
-      round: s.round,
-      remainingCount: s.remaining.length,
-      deckSize: s.deck.length,
-      expiresAt: room.expiresAt,
-      hostId: s.hostId,
-      players: s.players.map((p) => ({
-        id: p.id,
-        name: p.name,
-        active: p.active,
-        online: p.active && online.has(p.id),
-        pouch: p.pouch?.length ?? 0,
-      })),
-    };
   }
-  @SubscribeMessage('admin:overview')
-  overview(@ConnectedSocket() socket: Socket) {
-    return this.run(socket, async (identity): Promise<AdminOverview> => {
-      this.requireAdmin(identity);
-      const rooms = (await this.store.allRooms()).map((room) => this.adminRoomInfo(room));
-      const identities = new Set<string>();
-      for (const peer of this.server.sockets.sockets.values())
-        if (peer.data.identity?.id) identities.add(peer.data.identity.id);
-      const usage = new Map<string, { rooms: number; players: number }>();
-      for (const room of rooms) {
-        const entry = usage.get(room.packId) ?? { rooms: 0, players: 0 };
-        entry.rooms++;
-        entry.players += room.players.filter((p) => p.active).length;
-        usage.set(room.packId, entry);
-      }
+  async adminRooms() {
+    return (await this.store.allRooms()).map((room) => {
+      const online = this.onlineIds(room.id);
+      const s = room.state;
       return {
-        serverTime: Date.now(),
-        connections: this.server.sockets.sockets.size,
-        onlinePlayers: identities.size,
-        sessions: await this.store.countSessions(),
-        rooms,
-        packUsage: [...usage].map(([packId, v]) => ({ packId, ...v })),
+        id: room.id,
+        name: room.name,
+        packId: s.packId ?? defaultPackId,
+        phase: s.phase,
+        round: s.round,
+        remainingCount: s.remaining.length,
+        deckSize: s.deck.length,
+        expiresAt: room.expiresAt,
+        hostId: s.hostId,
+        players: s.players.map((p) => ({
+          id: p.id,
+          name: p.name,
+          active: p.active,
+          online: p.active && online.has(p.id),
+          drinksTaken: p.drinksTaken,
+          cardsDrawnCount: p.cardsDrawnCount,
+        })),
       };
     });
   }
-  @SubscribeMessage('admin:deleteRoom')
-  adminDelete(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
-    return this.run(socket, async (identity) => {
-      this.requireAdmin(identity);
-      const { roomId } = adminRoomSchema.parse(body);
-      await this.store.deleteRoom(roomId);
-      this.server.to(roomId).emit('room:expired');
-      for (const peer of this.server.sockets.sockets.values())
-        if (peer.data.roomId === roomId) {
-          await peer.leave(roomId);
-          peer.data.roomId = undefined;
-        }
-      return { ok: true };
-    });
+  async adminOverview() {
+    const identities = new Set<string>();
+    for (const peer of this.server.sockets.sockets.values())
+      if (peer.data.identity?.id) identities.add(peer.data.identity.id);
+    return {
+      connections: this.server.sockets.sockets.size,
+      onlinePlayers: identities.size,
+      sessions: await this.store.countSessions(),
+      rooms: (await this.store.allRooms()).length,
+      users: await this.store.countUsers(),
+    };
   }
-  @SubscribeMessage('admin:renameRoom')
-  adminRename(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
-    return this.run(socket, async (identity) => {
-      this.requireAdmin(identity);
-      const { roomId, name } = adminRenameSchema.parse(body);
-      await this.store.renameRoom(roomId, name);
-      await this.publish(roomId);
-      return { ok: true };
-    });
+  async adminDeleteRoom(roomId: string) {
+    await this.store.deleteRoom(roomId);
+    this.server.to(roomId).emit('room:expired');
+    for (const peer of this.server.sockets.sockets.values())
+      if (peer.data.roomId === roomId) {
+        await peer.leave(roomId);
+        peer.data.roomId = undefined;
+      }
   }
-  @SubscribeMessage('admin:kickPlayer')
-  adminKick(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
-    return this.run(socket, async (identity) => {
-      this.requireAdmin(identity);
-      const { roomId, playerId } = adminKickSchema.parse(body);
-      await this.store.adminMutate(roomId, (room) => {
-        const target = room.state.players.find((p) => p.id === playerId && p.active);
-        ensure(target, 'NOT_MEMBER', 'Người chơi không còn trong phòng.');
-        // Dùng đúng đường đi của hành động rời phòng để chuyển chủ phòng và lượt cho chuẩn.
-        applyAction(room.state, playerId, { type: 'leave' });
-      });
-      await this.publish(roomId);
-      for (const peer of this.server.sockets.sockets.values())
-        if (peer.data.roomId === roomId && peer.data.identity?.id === playerId) {
-          await peer.leave(roomId);
-          peer.data.roomId = undefined;
-          peer.emit('room:left');
-        }
-      return { ok: true };
-    });
+  async adminRenameRoom(roomId: string, name: string) {
+    await this.store.read(roomId);
+    await this.store.renameRoom(roomId, name);
+    await this.publish(roomId);
   }
-  @SubscribeMessage('admin:endGame')
-  adminEnd(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
-    return this.run(socket, async (identity) => {
-      this.requireAdmin(identity);
-      const { roomId } = adminRoomSchema.parse(body);
-      await this.store.adminMutate(roomId, (room) => {
-        applyAction(room.state, room.state.hostId, { type: 'end' });
-      });
-      await this.publish(roomId);
-      return { ok: true };
+  async adminKick(roomId: string, playerId: string) {
+    await this.store.adminMutate(roomId, (room) => {
+      const target = room.state.players.find((p) => p.id === playerId && p.active);
+      ensure(target, 'NOT_MEMBER', 'Người chơi không còn trong phòng.');
+      // Dùng đúng đường đi của hành động rời phòng để chuyển chủ phòng và lượt cho chuẩn.
+      applyAction(room.state, playerId, { type: 'leave' });
     });
+    await this.publish(roomId);
+    for (const peer of this.server.sockets.sockets.values())
+      if (peer.data.roomId === roomId && peer.data.identity?.id === playerId) {
+        await peer.leave(roomId);
+        peer.data.roomId = undefined;
+        peer.emit('room:left');
+      }
   }
-  @SubscribeMessage('admin:notice')
-  adminNotice(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
-    return this.run(socket, async (identity) => {
-      this.requireAdmin(identity);
-      const { message } = adminNoticeSchema.parse(body);
-      this.server.emit('server:notice', message);
-      return { ok: true };
+  async adminEndGame(roomId: string) {
+    await this.store.adminMutate(roomId, (room) => {
+      applyAction(room.state, room.state.hostId, { type: 'end' });
     });
+    await this.publish(roomId);
   }
-  @SubscribeMessage('admin:prune')
-  adminPrune(@ConnectedSocket() socket: Socket) {
-    return this.run(socket, async (identity) => {
-      this.requireAdmin(identity);
-      return { removed: (await this.store.prune()).length };
-    });
+  adminNotice(message: string) {
+    this.server.emit('server:notice', message);
   }
   @SubscribeMessage('room:sync')
   sync(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {

@@ -19,7 +19,6 @@ import { apiUrl, connect, loadSession, request, RequestError, saveSession } from
 import { Button, Copy, Field, Heading, IconButton, Panel } from './ui';
 import { Toast } from './Toast';
 import { DeckEditor } from './DeckEditor';
-import { AdminDashboard } from './AdminDashboard';
 import { PausedNotice } from './PausedNotice';
 import { RoomScreen } from './RoomScreen';
 
@@ -56,7 +55,7 @@ export default function App() {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [error, setError] = useState('');
-  // Thông báo từ admin hiện dạng toast nổi, tách khỏi banner lỗi để dễ theo dõi.
+  // Thông báo từ dashboard quản trị hiện dạng toast nổi, tách khỏi banner lỗi để dễ theo dõi.
   const [notice, setNotice] = useState('');
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const showNotice = useCallback((message: string) => {
@@ -294,16 +293,6 @@ export default function App() {
     await remember(await response.json());
     setPassword('');
   }
-  async function exitAdmin() {
-    try {
-      if (socketRef.current?.connected) await request(socketRef.current, 'auth:logout');
-    } catch {
-      /* Phiên admin hết hạn thì chỉ cần xóa ở máy. */
-    }
-    await remember(null);
-    setProfile(null);
-    setMode('list');
-  }
   // `online` của từng người chơi do server suy ra từ socket đang ở trong room, nên danh sách
   // này cập nhật ngay khi có người rớt mạng hoặc quay lại.
   const seated = room?.players.filter((p) => p.active) ?? [];
@@ -329,9 +318,7 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView className="flex-1 bg-night">
         <StatusBar style="light" />
-        {session?.isAdmin ? (
-          <AdminDashboard socket={socketRef.current!} onExit={() => void work(exitAdmin)} />
-        ) : session && room ? (
+        {session && room ? (
           <RoomScreen
             room={room}
             session={session}

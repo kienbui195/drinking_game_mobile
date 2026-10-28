@@ -220,8 +220,6 @@ export interface Session {
   name: string;
   /** Username only exists for registered accounts; legacy sessions omit it. */
   username?: string;
-  /** Phiên quản trị đăng nhập qua form đăng nhập bằng tài khoản admin. */
-  isAdmin?: boolean;
   roomId?: string;
 }
 export interface Profile {
@@ -246,29 +244,3 @@ export interface SystemDeck {
 }
 export type Reply<T> =
   { ok: true; data: T } | { ok: false; code: string; message: string; nextAllowedAt?: number };
-
-/** Thông tin một phòng dưới góc nhìn quản trị. */
-export interface AdminRoom {
-  id: string;
-  name: string;
-  packId: string;
-  phase: GameState['phase'];
-  round: number;
-  remainingCount: number;
-  deckSize: number;
-  expiresAt: number;
-  hostId: string;
-  players: { id: string; name: string; active: boolean; online: boolean; pouch: number }[];
-}
-export interface AdminOverview {
-  serverTime: number;
-  /** Số kết nối socket đang mở. */
-  connections: number;
-  /** Số người chơi khác nhau đang kết nối. */
-  onlinePlayers: number;
-  /** Số phiên còn hiệu lực trong cơ sở dữ liệu. */
-  sessions: number;
-  rooms: AdminRoom[];
-  /** Số phòng theo từng chủ đề. */
-  packUsage: { packId: string; rooms: number; players: number }[];
-}
