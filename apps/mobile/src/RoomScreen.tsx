@@ -180,7 +180,8 @@ export function RoomScreen({
         )}
         <Copy>
           Chủ phòng rời đi: quyền được chuyển cho thành viên tiếp theo. Khi mất mạng, chỗ ngồi được
-          giữ; chủ phòng có thể bỏ lượt đang chờ.
+          giữ tối đa 30 phút nếu cả phòng đều offline; chủ phòng có thể bỏ lượt đang chờ. Phòng
+          không còn thành viên sẽ được xóa ngay.
         </Copy>
       </ScrollView>
 
@@ -252,6 +253,7 @@ export function RoomScreen({
           room={room}
           card={card}
           mine={mine}
+          playerId={session.playerId}
           playerName={current?.name ?? ''}
           pouchCount={pouch.length}
           fromPouch={fromPouch}

@@ -239,7 +239,7 @@ export default function App() {
               password,
               requestId: createId.current,
               packId,
-              deckId: selectedDeckId,
+              ...(selectedDeckId ? { deckId: selectedDeckId } : {}),
             }
           : { roomId: code, password },
       );
@@ -662,7 +662,13 @@ export default function App() {
                           disabled={busy}
                           onPress={() =>
                             void work(async () => {
-                              await request(socketRef.current!, 'auth:logout');
+                              try {
+                                if (socketRef.current?.connected)
+                                  await request(socketRef.current, 'auth:logout');
+                              } catch {
+                                // A rejected or expired token cannot be revoked remotely; still
+                                // clear the saved session so the player can sign in again.
+                              }
                               await remember(null);
                               setProfile(null);
                               setMode('list');
@@ -687,7 +693,10 @@ export default function App() {
                               accessibilityRole="button"
                               accessibilityLabel={`Chủ đề ${pack.name}`}
                               aria-selected={packId === pack.id}
-                              onPress={() => setPackId(pack.id)}
+                              onPress={() => {
+                                setPackId(pack.id);
+                                setSelectedDeckId('');
+                              }}
                               className={`rounded-2xl border p-3 ${packId === pack.id ? 'bg-violet-900 border-violet-300' : 'bg-night border-slate-700'}`}
                             >
                               <Text className="text-white font-bold">
@@ -811,7 +820,10 @@ export default function App() {
                                   accessibilityRole="button"
                                   accessibilityLabel={`Chủ đề ${pack.name}`}
                                   aria-selected={packId === pack.id}
-                                  onPress={() => setPackId(pack.id)}
+                                  onPress={() => {
+                                    setPackId(pack.id);
+                                    setSelectedDeckId('');
+                                  }}
                                   className={`rounded-2xl border p-3 gap-0.5 ${
                                     packId === pack.id
                                       ? 'bg-violet-900 border-violet-300'
@@ -830,12 +842,19 @@ export default function App() {
                             <Text className="text-slate-300 text-sm font-semibold">
                               Bộ bài để chơi
                             </Text>
-                            {decks.length === 0 ? (
-                              <Copy>
-                                Chưa có bộ bài riêng cho chủ đề này. Hãy tạo hoặc sao chép một bộ
-                                trong thư viện.
-                              </Copy>
-                            ) : (
+                            <Pressable
+                              accessibilityRole="button"
+                              accessibilityLabel="Bộ mặc định của hệ thống"
+                              aria-selected={!selectedDeckId}
+                              onPress={() => setSelectedDeckId('')}
+                              className={`rounded-2xl border p-3 ${!selectedDeckId ? 'bg-violet-900 border-violet-300' : 'bg-night border-slate-700'}`}
+                            >
+                              <Text className="text-white font-bold">Bộ mặc định của hệ thống</Text>
+                              <Text className="text-slate-400 text-xs">
+                                Sao chép bộ hiện tại vào phòng mới, độc lập với bộ gốc.
+                              </Text>
+                            </Pressable>
+                            {decks.length > 0 && (
                               <View className="gap-2">
                                 {decks.map((deck) => (
                                   <Pressable
@@ -883,9 +902,7 @@ export default function App() {
                           disabled={
                             locked ||
                             password.length < 4 ||
-                            (mode === 'create'
-                              ? !roomName.trim() || !selectedDeckId
-                              : code.length !== 6)
+                            (mode === 'create' ? !roomName.trim() : code.length !== 6)
                           }
                           busy={busy}
                           onPress={() =>

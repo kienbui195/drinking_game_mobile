@@ -45,6 +45,7 @@ export function initialState(player: Player, deck: Card[], packId = defaultPackI
     revealed: null,
     pouchCard: null,
     timerEndsAt: null,
+    vote: null,
     history: [],
   };
 }
@@ -61,6 +62,7 @@ function deal(s: GameState) {
   s.revealed = null;
   s.pouchCard = null;
   s.timerEndsAt = null;
+  s.vote = null;
   if (count < 2) {
     s.phase = 'ended';
     return;
@@ -78,10 +80,49 @@ function advance(s: GameState) {
   s.revealed = null;
   s.pouchCard = null;
   s.timerEndsAt = null;
+  s.vote = null;
   const next = s.players.findIndex((p, i) => p.active && i > s.turn);
   if (s.players.filter((p) => p.active).length < 2) s.phase = 'ended';
   else if (next < 0) deal(s);
   else s.turn = next;
+}
+function completeTurn(
+  s: GameState,
+  actor: Player,
+  card: Card,
+  completed: boolean,
+  penalty: number,
+  now: number,
+  votes?: { accepted: number; rejected: number },
+) {
+  const drinks = completed ? 0 : penalty;
+  actor.drinksTaken += drinks;
+  actor.cardsDrawnCount++;
+  actor.challengesCompleted += Number(completed);
+  s.history.push({
+    playerId: actor.id,
+    playerName: actor.name,
+    card,
+    round: s.round,
+    at: now,
+    drinks,
+    completed,
+    ...(s.pouchCard !== null ? { fromPouch: true } : {}),
+    ...(votes ? { votes } : {}),
+  });
+  advance(s);
+}
+function finishVote(s: GameState, now: number) {
+  const vote = s.vote;
+  if (!vote || s.phase !== 'playing') return;
+  const actor = s.players[s.turn];
+  const voters = s.players.filter((p) => p.active && p.id !== actor.id);
+  if (!voters.every((p) => p.id in vote.choices)) return;
+  const accepted = voters.filter((p) => vote.choices[p.id]).length;
+  const rejected = voters.length - accepted;
+  const card = s.pouchCard ?? (s.revealed === null ? null : s.slots[s.revealed].card);
+  if (card)
+    completeTurn(s, actor, card, accepted > rejected, vote.penalty, now, { accepted, rejected });
 }
 export function applyAction(s: GameState, actorId: string, action: Action, now = Date.now()) {
   const actor = s.players.find((p) => p.id === actorId && p.active);
@@ -153,6 +194,7 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
     case 'complete': {
       playing();
       ownTurn();
+      ensure(!s.vote, 'VOTE_IN_PROGRESS', 'Hãy chờ bình chọn hoặc hủy bình chọn.');
       const card = openCard();
       ensure(card, 'NO_CARD', 'Chưa có lá được mở.');
       ensure(
@@ -160,28 +202,42 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
         'BAD_DRINKS',
         'Số ngụm cần từ 0 đến 20.',
       );
-      const fromPouch = s.pouchCard !== null;
-      // Hoàn thành thử thách là thoát phạt: chỉ người bỏ qua mới bị tính số ngụm.
-      const drinks = action.completed ? 0 : action.drinks;
-      actor.drinksTaken += drinks;
-      actor.cardsDrawnCount++;
-      actor.challengesCompleted += Number(action.completed);
-      s.history.push({
-        playerId: actor.id,
-        playerName: actor.name,
-        card,
-        round: s.round,
-        at: now,
-        drinks,
-        completed: action.completed,
-        ...(fromPouch ? { fromPouch: true } : {}),
-      });
-      advance(s);
+      completeTurn(s, actor, card, action.completed, action.drinks, now);
       break;
     }
+    case 'requestVote': {
+      playing();
+      ownTurn();
+      const card = openCard();
+      ensure(card, 'NO_CARD', 'Chưa có lá được mở.');
+      ensure(
+        card.category === 'challenge' || card.category === 'minigame',
+        'BAD_CARD',
+        'Chỉ bình chọn lá thử thách hoặc mini game.',
+      );
+      ensure(!s.vote, 'VOTE_IN_PROGRESS', 'Đang chờ cả bàn bình chọn.');
+      s.vote = { penalty: action.drinks, choices: {} };
+      break;
+    }
+    case 'vote': {
+      playing();
+      ensure(s.vote && openCard(), 'NO_VOTE', 'Chưa có lượt bình chọn.');
+      ensure(s.players[s.turn].id !== actorId, 'SELF_VOTE', 'Người thực hiện không tự bình chọn.');
+      ensure(!(actorId in s.vote.choices), 'ALREADY_VOTED', 'Bạn đã bình chọn lượt này.');
+      s.vote.choices[actorId] = action.accepted;
+      finishVote(s, now);
+      break;
+    }
+    case 'cancelVote':
+      playing();
+      ownTurn();
+      ensure(s.vote, 'NO_VOTE', 'Chưa có lượt bình chọn.');
+      s.vote = null;
+      break;
     case 'stash': {
       playing();
       ownTurn();
+      ensure(!s.vote, 'VOTE_IN_PROGRESS', 'Hãy chờ bình chọn hoặc hủy bình chọn.');
       ensure(s.pouchCard === null, 'BAD_CARD', 'Lá lấy từ túi không cất lại được.');
       const card = openCard();
       ensure(card, 'NO_CARD', 'Chưa có lá được mở.');
@@ -251,6 +307,7 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
       s.revealed = null;
       s.pouchCard = null;
       s.timerEndsAt = null;
+      s.vote = null;
       break;
     case 'restart':
       host();
@@ -265,6 +322,7 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
       s.revealed = null;
       s.pouchCard = null;
       s.timerEndsAt = null;
+      s.vote = null;
       break;
     case 'leave': {
       actor.active = false;
@@ -274,6 +332,7 @@ export function applyAction(s: GameState, actorId: string, action: Action, now =
       else if (s.phase === 'playing' && (s.players[s.turn].id === actorId || remaining.length < 2))
         advance(s);
       if (s.phase === 'lobby') s.players = remaining;
+      if (s.vote) finishVote(s, now);
       break;
     }
   }

@@ -1,0 +1,65 @@
+# Chạy trên VPS (/srv/apps/chamly): cần mạng Docker `appnet`, database tạo bằng `vps db-create chamly`
+# và /srv/secrets/chamly.app.env (ADMIN_PASSWORD=...). `svc` dùng file này thay cho compose.yaml (stack dev local).
+# Deploy: git push rồi `vps release chamly`. Caddy máy chủ: deploy/chamly.caddy.
+name: chamly
+services:
+  chamly-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: chamly-api:latest
+    container_name: chamly-api
+    restart: unless-stopped
+    init: true
+    env_file:
+      - /srv/secrets/chamly.db.env
+      - /srv/secrets/chamly.app.env
+    environment:
+      NODE_ENV: production
+      API_PORT: '3000'
+      CORS_ORIGINS: 'https://chamly.baodom.xyz'
+    # Caddy chạy trên máy chủ nên cần một cổng chỉ nghe ở 127.0.0.1.
+    ports:
+      - '127.0.0.1:3107:3000'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [appnet]
+    mem_limit: 256m
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    logging:
+      options: { max-size: '10m', max-file: '3' }
+  chamly-web:
+    build:
+      context: .
+      dockerfile: apps/mobile/Dockerfile
+      args:
+        EXPO_PUBLIC_API_URL: https://chamly.baodom.xyz
+    image: chamly-web:latest
+    container_name: chamly-web
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:3108:80'
+    networks: [appnet]
+    mem_limit: 64m
+    read_only: true
+    tmpfs: [/tmp, /data, /config]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ['no-new-privileges:true']
+    logging:
+      options: { max-size: '10m', max-file: '3' }
+networks:
+  appnet:
+    external: true

@@ -13,6 +13,7 @@ import { Server, Socket } from 'socket.io';
 import { z, ZodError } from 'zod';
 import {
   defaultPackId,
+  type SystemDeck,
   type AdminOverview,
   type AdminRoom,
   type Reply,
@@ -31,6 +32,8 @@ import {
   displayNameSchema,
   joinSchema,
   passwordChangeSchema,
+  systemDeckSchema,
+  systemDeckUpdateSchema,
 } from './validation';
 
 export const allowedOrigins = () =>
@@ -99,7 +102,14 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     socket.data.count = 0;
   }
   async handleDisconnect(socket: Socket) {
-    if (socket.data.roomId) await this.publish(socket.data.roomId);
+    if (socket.data.roomId) {
+      await this.updatePresence(socket.data.roomId);
+      await this.publish(socket.data.roomId);
+    }
+  }
+  private async updatePresence(roomId: string) {
+    const online = (this.server.sockets.adapter.rooms.get(roomId)?.size ?? 0) > 0;
+    await this.store.setPresence(roomId, online);
   }
   private view(room: StoredRoom): RoomView {
     const s = room.state;
@@ -132,6 +142,14 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
       currentPlayerId: s.phase === 'playing' ? (s.players[s.turn]?.id ?? null) : null,
       revealed: s.pouchCard ?? (s.revealed === null ? null : s.slots[s.revealed].card),
       timerEndsAt: s.timerEndsAt,
+      vote: s.vote
+        ? {
+            votedPlayerIds: s.players
+              .filter((p) => p.active && p.id !== s.players[s.turn]?.id && p.id in s.vote!.choices)
+              .map((p) => p.id),
+            total: s.players.filter((p) => p.active && p.id !== s.players[s.turn]?.id).length,
+          }
+        : null,
       history: s.history,
     };
   }
@@ -147,10 +165,12 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     const old = socket.data.roomId;
     if (old && old !== room.id) {
       await socket.leave(old);
+      await this.updatePresence(old);
       await this.publish(old);
     }
     socket.data.roomId = room.id;
     await socket.join(room.id);
+    await this.updatePresence(room.id);
     await this.publish(room.id);
     return this.view(await this.store.read(room.id));
   }
@@ -288,6 +308,21 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
   /** Quyền quản trị gắn với phiên đăng nhập admin, nên còn hiệu lực sau khi reconnect. */
   private requireAdmin(identity: Identity) {
     ensure(identity.isAdmin === true, 'FORBIDDEN', 'Cần quyền quản trị.');
+  }
+  @SubscribeMessage('admin:systemDeck')
+  adminSystemDeck(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
+    return this.run(socket, (identity): Promise<SystemDeck> => {
+      this.requireAdmin(identity);
+      return this.store.systemDeck(systemDeckSchema.parse(body).packId);
+    });
+  }
+  @SubscribeMessage('admin:updateSystemDeck')
+  adminUpdateSystemDeck(@ConnectedSocket() socket: Socket, @MessageBody() body: unknown) {
+    return this.run(socket, (identity): Promise<SystemDeck> => {
+      this.requireAdmin(identity);
+      const input = systemDeckUpdateSchema.parse(body);
+      return this.store.updateSystemDeck(input.packId, input.revision, input.cards);
+    });
   }
   private adminRoomInfo(room: StoredRoom): AdminRoom {
     const members = this.server.sockets.adapter.rooms.get(room.id) ?? new Set<string>();
@@ -431,7 +466,8 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
     return this.run(socket, async (identity) => {
       const cmd = commandSchema.parse(body);
       const result = await this.store.command(identity, cmd);
-      await this.publish(result.id);
+      const empty = !result.state.players.some((player) => player.active);
+      if (!empty) await this.publish(result.id);
       if (cmd.action.type === 'leave') {
         for (const peer of this.server.sockets.sockets.values()) {
           if (peer.data.identity.id === identity.id && peer.data.roomId === result.id) {
@@ -440,6 +476,7 @@ export class GameGateway implements OnGatewayInit, OnGatewayConnection, OnGatewa
             peer.emit('room:left');
           }
         }
+        if (!empty) await this.updatePresence(result.id);
       }
       return this.view(result);
     });

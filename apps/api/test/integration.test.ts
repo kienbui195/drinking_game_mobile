@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { io, type Socket } from 'socket.io-client';
 import type { Action, OwnedDeck, Profile, Reply, RoomView, Session } from '@chamly/shared';
-import { Store } from '../src/store';
+import { offlineTtl, Store } from '../src/store';
 import { spawn, type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
+import type { RowDataPacket } from 'mysql2/promise';
 
 const url = process.env.TEST_API_URL ?? 'http://localhost:45100';
 function rpc<T>(socket: Socket, event: string, data: unknown = {}): Promise<Reply<T>> {
@@ -51,6 +52,101 @@ function open(token: string): Promise<Socket> {
   });
 }
 test(
+  'empty rooms are removed immediately; all-offline rooms expire after 30 minutes unless someone returns',
+  { timeout: 30_000 },
+  async (t) => {
+    const store = new Store();
+    await store.onModuleInit();
+    const player = await store.createIdentity(`Expiry-${randomUUID().slice(0, 5)}`);
+    const identity = { id: player.playerId, name: player.name };
+    const roomIds: string[] = [];
+    t.after(async () => {
+      for (const id of roomIds) await store.pool.execute('DELETE FROM rooms WHERE id = ?', [id]);
+      await store.pool.execute('DELETE FROM sessions WHERE id = ?', [player.playerId]);
+      await store.onModuleDestroy();
+    });
+    const empty = await store.create(identity, 'Empty', 'secret', randomUUID());
+    roomIds.push(empty.id);
+    await store.command(identity, {
+      roomId: empty.id,
+      revision: empty.revision,
+      requestId: randomUUID(),
+      action: { type: 'leave' },
+    });
+    assert.equal(
+      (
+        await store.pool.execute<RowDataPacket[]>('SELECT id FROM rooms WHERE id = ?', [empty.id])
+      )[0].length,
+      0,
+    );
+
+    const room = await store.create(identity, 'Offline', 'secret', randomUUID());
+    roomIds.push(room.id);
+    await store.setPresence(room.id, false);
+    let saved = await store.read(room.id);
+    assert.ok(saved.offlineSince);
+    assert.ok(saved.expiresAt >= saved.offlineSince! + offlineTtl);
+    await store.setPresence(room.id, false);
+    assert.equal((await store.read(room.id)).offlineSince, saved.offlineSince);
+    await store.setPresence(room.id, true);
+    saved = await store.read(room.id);
+    assert.equal(saved.offlineSince, null);
+    await store.setPresence(room.id, false);
+    // Simulate 30 minutes elapsing: reconnect after this point must be rejected even before prune.
+    await store.pool.execute('UPDATE rooms SET offline_since = ? WHERE id = ?', [
+      Date.now() - offlineTtl - 1,
+      room.id,
+    ]);
+    await assert.rejects(store.read(room.id), /hết hạn/);
+    assert.ok((await store.prune()).includes(room.id));
+    const [left] = await store.pool.execute<RowDataPacket[]>('SELECT id FROM rooms WHERE id = ?', [
+      room.id,
+    ]);
+    assert.equal(left.length, 0);
+  },
+);
+
+test(
+  'socket disconnect and reconnect persist and clear the room offline timer',
+  { timeout: 30_000 },
+  async (t) => {
+    const owner = await session(`Presence-${randomUUID().slice(0, 5)}`);
+    const store = new Store();
+    await store.onModuleInit();
+    const sockets: Socket[] = [];
+    let id = '';
+    t.after(async () => {
+      sockets.forEach((socket) => socket.disconnect());
+      if (id) await store.pool.execute('DELETE FROM rooms WHERE id = ?', [id]);
+      await store.pool.execute('DELETE FROM sessions WHERE id = ?', [owner.playerId]);
+      await store.onModuleDestroy();
+    });
+    const first = await open(owner.token);
+    sockets.push(first);
+    id = unwrap(
+      await rpc<RoomView>(first, 'room:create', {
+        name: 'Presence',
+        password: 'secret',
+        requestId: randomUUID(),
+      }),
+    ).id;
+    assert.equal((await store.read(id)).offlineSince, null);
+    first.disconnect();
+    let since: number | null = null;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      since = (await store.read(id)).offlineSince;
+      if (since) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(since, 'Disconnect must start the offline timer');
+    const second = await open(owner.token);
+    sockets.push(second);
+    unwrap(await rpc<RoomView>(second, 'room:sync', { roomId: id }));
+    assert.equal((await store.read(id)).offlineSince, null);
+  },
+);
+
+test(
   'real MySQL + sockets: rooms, auth, isolation, races, reconnect and persistence',
   { timeout: 60_000 },
   async (t) => {
@@ -69,6 +165,33 @@ test(
         await store.pool.execute('DELETE FROM sessions WHERE id = ?', [s.playerId]);
       await store.onModuleDestroy();
     });
+    const [sessionRows] = await store.pool.execute<RowDataPacket[]>(
+      'SELECT started_at, expires_at FROM sessions WHERE id = ?',
+      [identities[0].playerId],
+    );
+    assert.equal(
+      Number(sessionRows[0].expires_at) - Number(sessionRows[0].started_at),
+      7 * 24 * 60 * 60 * 1000,
+    );
+    // Existing legacy sessions had no started_at and a 30-day expiry. Startup caps them once.
+    const legacy = await store.createIdentity('Legacy migration test');
+    identities.push(legacy);
+    const legacyExpiry = Date.now() + 29 * 24 * 60 * 60 * 1000;
+    await store.pool.execute('UPDATE sessions SET started_at = NULL, expires_at = ? WHERE id = ?', [
+      legacyExpiry,
+      legacy.playerId,
+    ]);
+    for (let restart = 0; restart < 2; restart++) {
+      const restarted = new Store();
+      await restarted.onModuleInit();
+      await restarted.onModuleDestroy();
+      const [rows] = await store.pool.execute<RowDataPacket[]>(
+        'SELECT started_at, expires_at FROM sessions WHERE id = ?',
+        [legacy.playerId],
+      );
+      assert.equal(Number(rows[0].started_at), legacyExpiry - 30 * 24 * 60 * 60 * 1000);
+      assert.equal(Number(rows[0].expires_at), legacyExpiry - 23 * 24 * 60 * 60 * 1000);
+    }
     await assert.rejects(open('invalid'), /UNAUTHORIZED/);
     let state = unwrap(
       await rpc<RoomView>(host, 'room:create', {
@@ -79,7 +202,8 @@ test(
     );
     created.push(state.id);
     const roomId = state.id;
-    assert.equal(state.deck.length, 50);
+    assert.equal(state.deck.length, 54);
+    assert.ok(state.deck.some((card) => card.id === 'group-1'));
     assert.equal('password' in state, false);
     assert.equal((await rpc(guest, 'room:join', { roomId, password: 'wrong' })).ok, false);
     const denied = await rpc(outsider, 'room:sync', { roomId });
@@ -187,6 +311,14 @@ test(
     const otherSocket = await open(other.token);
     const store = new Store();
     await store.onModuleInit();
+    const [accountRows] = await store.pool.execute<RowDataPacket[]>(
+      'SELECT started_at, expires_at FROM sessions WHERE id = ?',
+      [owner.playerId],
+    );
+    assert.equal(
+      Number(accountRows[0].expires_at) - Number(accountRows[0].started_at),
+      7 * 24 * 60 * 60 * 1000,
+    );
     const decks: string[] = [];
     let roomId = '';
     t.after(async () => {
@@ -255,15 +387,17 @@ test(
       cards: [{ ...deck.cards[0], category: 'challenge' }],
     });
     assert.equal(invalid.ok, false);
-    // AC-06.2: chưa chọn deck thì không được ngầm dùng deck hệ thống để tạo phòng.
-    const missingDeck = await rpc(ownerSocket, 'room:create', {
-      name: 'Phòng thiếu deck',
-      password: 'test-secret',
-      requestId: randomUUID(),
-      packId: 'kien-thuc',
-    });
-    assert.equal(missingDeck.ok, false);
-    if (!missingDeck.ok) assert.equal(missingDeck.code, 'DECK_REQUIRED');
+    // Không chọn bộ riêng: phòng lấy snapshot từ bộ mặc định hiện tại.
+    const defaultRoom = unwrap(
+      await rpc<RoomView>(ownerSocket, 'room:create', {
+        name: 'Phòng từ bộ hệ thống',
+        password: 'test-secret',
+        requestId: randomUUID(),
+        packId: 'kien-thuc',
+      }),
+    );
+    assert.deepEqual(defaultRoom.deck, await store.defaultDeck('kien-thuc'));
+    await store.pool.execute('DELETE FROM rooms WHERE id = ?', [defaultRoom.id]);
     // AC-06.1: deck không thuộc game đã chọn bị từ chối khi tạo phòng.
     const mismatchedDeck = await rpc(ownerSocket, 'room:create', {
       name: 'Phòng sai game',
@@ -349,6 +483,255 @@ test(
     // AC-02.3: đăng xuất xóa token, phiên đó không dùng lại được.
     assert.equal((await rpc(otherSocket, 'auth:logout')).ok, true);
     await assert.rejects(open(other.token), /UNAUTHORIZED/);
+  },
+);
+
+test(
+  'admin edits system decks; new rooms and user clones take snapshots while old ones stay intact',
+  { timeout: 30_000, skip: !process.env.ADMIN_PASSWORD },
+  async (t) => {
+    const packId = 'kien-thuc';
+    const store = new Store();
+    await store.onModuleInit();
+    const original = await store.systemDeck(packId);
+    const createdRooms: string[] = [];
+    const createdDecks: string[] = [];
+    const response = await fetch(`${url}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: process.env.ADMIN_USERNAME ?? process.env.ADMIN_ROOM_NAME ?? 'adminserverday',
+        password: process.env.ADMIN_PASSWORD,
+      }),
+    });
+    assert.equal(response.status, 201);
+    const adminSession: Session = await response.json();
+    const userSession = await account(`Bộ Gốc ${randomUUID().slice(0, 6)}`);
+    const [admin, user] = await Promise.all([open(adminSession.token), open(userSession.token)]);
+    t.after(async () => {
+      admin.disconnect();
+      user.disconnect();
+      await store.pool.execute('UPDATE default_decks SET cards = ?, revision = ? WHERE id = ?', [
+        JSON.stringify(original.cards),
+        original.revision,
+        packId,
+      ]);
+      for (const id of createdRooms)
+        await store.pool.execute('DELETE FROM rooms WHERE id = ?', [id]);
+      for (const id of createdDecks)
+        await store.pool.execute('DELETE FROM deck_cards WHERE deck_id = ?', [id]);
+      await store.pool.execute(
+        'DELETE FROM user_decks WHERE user_id IN (SELECT id FROM users WHERE username = ?)',
+        [userSession.username],
+      );
+      await store.pool.execute('DELETE FROM sessions WHERE id IN (?, ?)', [
+        adminSession.playerId,
+        userSession.playerId,
+      ]);
+      await store.pool.execute('DELETE FROM users WHERE username = ?', [userSession.username]);
+      await store.onModuleDestroy();
+    });
+    const before = unwrap(
+      await rpc<RoomView>(user, 'room:create', {
+        name: 'Before admin edit',
+        password: 'test-secret',
+        requestId: randomUUID(),
+        packId,
+      }),
+    );
+    createdRooms.push(before.id);
+    assert.equal((await rpc(user, 'admin:systemDeck', { packId })).ok, false);
+    const draft = unwrap(
+      await rpc<{ cards: typeof original.cards; revision: number }>(admin, 'admin:systemDeck', {
+        packId,
+      }),
+    );
+    const cards = draft.cards.map((card, index) =>
+      index === 0 ? { ...card, title: 'Admin updated title' } : card,
+    );
+    assert.equal(
+      (await rpc(user, 'admin:updateSystemDeck', { packId, revision: draft.revision, cards })).ok,
+      false,
+    );
+    assert.equal(
+      (
+        await rpc(admin, 'admin:updateSystemDeck', {
+          packId,
+          revision: draft.revision,
+          cards: cards.map((card) => ({ ...card, category: 'challenge' })),
+        })
+      ).ok,
+      false,
+    );
+    const updated = unwrap(
+      await rpc<{ cards: typeof cards; revision: number }>(admin, 'admin:updateSystemDeck', {
+        packId,
+        revision: draft.revision,
+        cards,
+      }),
+    );
+    assert.equal(updated.revision, draft.revision + 1);
+    const stale = await rpc(admin, 'admin:updateSystemDeck', {
+      packId,
+      revision: draft.revision,
+      cards,
+    });
+    assert.equal(stale.ok, false);
+    if (!stale.ok) assert.equal(stale.code, 'STALE_REVISION');
+    const after = unwrap(
+      await rpc<RoomView>(user, 'room:create', {
+        name: 'After admin edit',
+        password: 'test-secret',
+        requestId: randomUUID(),
+        packId,
+      }),
+    );
+    createdRooms.push(after.id);
+    assert.equal(after.deck[0].title, 'Admin updated title');
+    assert.equal(before.deck[0].title, original.cards[0].title);
+    const cloned = unwrap(
+      await rpc<OwnedDeck>(user, 'decks:cloneDefault', { packId, name: 'Fresh clone' }),
+    );
+    createdDecks.push(cloned.id);
+    assert.equal(cloned.cards[0].title, 'Admin updated title');
+    const next = unwrap(
+      await rpc<{ cards: typeof cards; revision: number }>(admin, 'admin:updateSystemDeck', {
+        packId,
+        revision: updated.revision,
+        cards: original.cards,
+      }),
+    );
+    assert.equal(next.revision, updated.revision + 1);
+    assert.equal((await store.read(after.id)).state.deck[0].title, 'Admin updated title');
+    assert.equal(
+      unwrap(await rpc<OwnedDeck>(user, 'decks:get', { deckId: cloned.id })).cards[0].title,
+      'Admin updated title',
+    );
+  },
+);
+
+test(
+  'group cards are seeded once; admin removal survives backend restart',
+  { timeout: 30_000 },
+  async (t) => {
+    const store = new Store();
+    await store.onModuleInit();
+    const original = await store.systemDeck('chamly-50');
+    t.after(async () => {
+      const current = await store.systemDeck('chamly-50');
+      if (current.revision !== original.revision)
+        await store.updateSystemDeck('chamly-50', current.revision, original.cards);
+      await store.onModuleDestroy();
+    });
+    const withoutOne = original.cards.filter((card) => card.id !== 'group-4');
+    assert.equal(withoutOne.length, original.cards.length - 1);
+    await store.updateSystemDeck('chamly-50', original.revision, withoutOne);
+    const restarted = new Store();
+    await restarted.onModuleInit();
+    try {
+      assert.equal(
+        (await restarted.systemDeck('chamly-50')).cards.some((card) => card.id === 'group-4'),
+        false,
+      );
+    } finally {
+      await restarted.onModuleDestroy();
+    }
+  },
+);
+
+test(
+  'room vote is authorized, broadcast and persisted before the next turn',
+  { timeout: 30_000 },
+  async (t) => {
+    const players = await Promise.all(['Vote host', 'Vote guest'].map((name) => session(name)));
+    const [host, guest] = await Promise.all(players.map((player) => open(player.token)));
+    const store = new Store();
+    await store.onModuleInit();
+    let roomId = '';
+    const seeded = await store.systemDeck('chamly-50');
+    assert.equal(seeded.cards.filter((card) => card.id.startsWith('group-')).length, 4);
+    const restarted = new Store();
+    await restarted.onModuleInit();
+    assert.equal((await restarted.systemDeck('chamly-50')).revision, seeded.revision);
+    await restarted.onModuleDestroy();
+    t.after(async () => {
+      host.disconnect();
+      guest.disconnect();
+      if (roomId) await store.pool.execute('DELETE FROM rooms WHERE id = ?', [roomId]);
+      for (const player of players)
+        await store.pool.execute('DELETE FROM sessions WHERE id = ?', [player.playerId]);
+      await store.onModuleDestroy();
+    });
+    let room = unwrap(
+      await rpc<RoomView>(host, 'room:create', {
+        name: 'Vote test',
+        password: 'vote-secret',
+        requestId: randomUUID(),
+      }),
+    );
+    roomId = room.id;
+    room = unwrap(await rpc<RoomView>(guest, 'room:join', { roomId, password: 'vote-secret' }));
+    room = unwrap(
+      await rpc<RoomView>(host, 'room:command', {
+        roomId,
+        revision: room.revision,
+        requestId: randomUUID(),
+        action: {
+          type: 'saveDeck',
+          cards: room.deck.filter((card) => card.category === 'challenge').slice(0, 2),
+        },
+      }),
+    );
+    room = unwrap(
+      await rpc<RoomView>(host, 'room:command', {
+        roomId,
+        revision: room.revision,
+        requestId: randomUUID(),
+        action: { type: 'start' },
+      }),
+    );
+    room = unwrap(
+      await rpc<RoomView>(host, 'room:command', {
+        roomId,
+        revision: room.revision,
+        requestId: randomUUID(),
+        action: { type: 'pick', slot: 0 },
+      }),
+    );
+    room = unwrap(
+      await rpc<RoomView>(host, 'room:command', {
+        roomId,
+        revision: room.revision,
+        requestId: randomUUID(),
+        action: { type: 'requestVote', drinks: 2 },
+      }),
+    );
+    assert.deepEqual(room.vote, { votedPlayerIds: [], total: 1 });
+    assert.equal(
+      (
+        await rpc(host, 'room:command', {
+          roomId,
+          revision: room.revision,
+          requestId: randomUUID(),
+          action: { type: 'vote', accepted: true },
+        })
+      ).ok,
+      false,
+    );
+    const guestView = unwrap(await rpc<RoomView>(guest, 'room:sync', { roomId }));
+    assert.deepEqual(guestView.vote, room.vote);
+    room = unwrap(
+      await rpc<RoomView>(guest, 'room:command', {
+        roomId,
+        revision: room.revision,
+        requestId: randomUUID(),
+        action: { type: 'vote', accepted: true },
+      }),
+    );
+    assert.equal(room.vote, null);
+    assert.equal(room.history[0].completed, true);
+    assert.deepEqual(room.history[0].votes, { accepted: 1, rejected: 0 });
+    assert.equal((await store.read(roomId)).state.history[0].votes?.accepted, 1);
   },
 );
 

@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>Chạm Ly - Caddy, Docker và Cloudflare Tunnel</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+      :root { color-scheme: light only; }
+      html { scroll-behavior: smooth; }
+      body { overflow-wrap: anywhere; }
+      code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+      pre { white-space: pre-wrap; word-break: break-word; }
+      .nav-link.active { background: #eef2ff; color: #4338ca; font-weight: 700; border-left-color: #4f46e5; }
+    </style>
+  </head>
+  <body class="bg-slate-100 text-slate-800">
+    <div class="flex min-h-screen">
+      <aside class="fixed hidden h-screen w-72 overflow-y-auto border-r border-slate-200 bg-white md:block">
+        <div class="border-b border-slate-200 p-5">
+          <div class="text-xs font-semibold uppercase tracking-wide text-indigo-700">Chạm Ly · Production</div>
+          <div class="mt-1 text-lg font-bold text-slate-950">Caddy + Docker + Tunnel</div>
+          <div class="mt-1 text-xs text-slate-500">Frontend tĩnh trên host, backend trong Docker</div>
+        </div>
+        <nav class="space-y-1 p-3 text-sm">
+          <a href="#tong-quan" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">0. Kết luận nhanh</a>
+          <a href="#kien-truc" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">1. Kiến trúc</a>
+          <a href="#caddy" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">2. Caddy là gì</a>
+          <a href="#chuan-bi" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">3. Chuẩn bị</a>
+          <a href="#backend" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">4. Backend Docker</a>
+          <a href="#frontend" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">5. Build frontend</a>
+          <a href="#cau-hinh" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">6. Cấu hình Caddy</a>
+          <a href="#tunnel" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">7. Chạy cf-deploy</a>
+          <a href="#van-hanh" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">8. Vận hành</a>
+          <a href="#canh-bao" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">9. Điểm cần sửa</a>
+          <a href="#tham-khao" class="nav-link block rounded-r border-l-4 border-transparent px-3 py-2">10. Tham khảo</a>
+        </nav>
+        <div class="mx-3 mb-5 rounded-lg border border-indigo-100 bg-indigo-50 p-4 text-xs leading-relaxed text-indigo-950">
+          <div class="mb-2 font-semibold">Chú giải</div>
+          <div><span class="mr-1 inline-block h-3 w-3 rounded-sm bg-sky-400"></span> Cloudflare edge/tunnel</div>
+          <div><span class="mr-1 inline-block h-3 w-3 rounded-sm bg-violet-400"></span> Caddy trên host</div>
+          <div><span class="mr-1 inline-block h-3 w-3 rounded-sm bg-emerald-400"></span> Frontend tĩnh</div>
+          <div><span class="mr-1 inline-block h-3 w-3 rounded-sm bg-amber-400"></span> API/MySQL Docker</div>
+        </div>
+      </aside>
+
+      <main class="flex-1 px-5 py-10 md:ml-72 md:px-12">
+        <section id="tong-quan" class="mb-16 scroll-mt-8">
+          <div class="text-sm font-semibold uppercase tracking-widest text-indigo-700">Runbook theo cấu hình hiện tại · 01/10/2026</div>
+          <h1 class="mt-2 text-3xl font-bold text-slate-950 md:text-4xl">Chạy frontend trên host, backend bằng Docker và public qua Cloudflare</h1>
+          <p class="mt-4 text-lg leading-relaxed text-slate-600">
+            Production không nên public Expo development server từ <span class="mono">npm run web</span>. Frontend được export thành file tĩnh, Caddy phục vụ các file đó và chuyển các request API/WebSocket vào container backend. Cloudflare Tunnel chỉ cần trỏ vào một cổng Caddy duy nhất.
+          </p>
+          <div class="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-2xl font-bold text-indigo-700">1 hostname</div><div class="mt-1 text-sm text-slate-600">Web, REST và Socket.IO cùng domain</div></div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-2xl font-bold text-indigo-700">1 public port</div><div class="mt-1 text-sm text-slate-600">Chỉ origin Caddy tại 127.0.0.1:45104</div></div>
+            <div class="rounded-xl border border-slate-200 bg-white p-4"><div class="text-2xl font-bold text-indigo-700">0 inbound</div><div class="mt-1 text-sm text-slate-600">Không mở port router hoặc firewall Internet</div></div>
+          </div>
+          <div class="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-sm leading-relaxed text-emerald-950">
+            <strong>Lệnh public cuối cùng:</strong> <span class="mono">cf-deploy chamly chamly --mode port --port 45104</span>. Cờ <span class="mono">--mode port</span> được ghi rõ vì repo có <span class="mono">compose.yaml</span>; nếu chỉ truyền <span class="mono">-p</span>, chế độ tự nhận diện có thể ưu tiên Compose trước chế độ port.
+          </div>
+        </section>
+
+        <section id="kien-truc" class="mb-16 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-slate-950">1. Kiến trúc và luồng request</h2>
+          <div class="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-7 lg:items-stretch">
+            <div class="rounded-lg border-t-4 border-sky-400 bg-sky-50 p-3 text-center text-sm"><strong class="text-sky-900">Trình duyệt</strong><div class="mt-1 text-xs text-sky-800">HTTPS</div></div>
+            <div class="flex items-center justify-center text-slate-400">→</div>
+            <div class="rounded-lg border-t-4 border-sky-400 bg-sky-50 p-3 text-center text-sm"><strong class="text-sky-900">Cloudflare</strong><div class="mt-1 text-xs text-sky-800">TLS + DNS</div></div>
+            <div class="flex items-center justify-center text-slate-400">→</div>
+            <div class="rounded-lg border-t-4 border-violet-400 bg-violet-50 p-3 text-center text-sm"><strong class="text-violet-900">Caddy</strong><div class="mt-1 text-xs text-violet-800">127.0.0.1:45104</div></div>
+            <div class="flex items-center justify-center text-slate-400">→</div>
+            <div class="rounded-lg border-t-4 border-amber-400 bg-amber-50 p-3 text-center text-sm"><strong class="text-amber-900">API Docker</strong><div class="mt-1 text-xs text-amber-800">127.0.0.1:45100</div></div>
+          </div>
+          <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <article class="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+              <h3 class="font-bold text-emerald-950">Request giao diện</h3>
+              <p class="mt-2 text-sm leading-relaxed text-emerald-950">Caddy đọc file trong <span class="mono">/srv/chamly</span>. Đường dẫn không trùng file thật được trả về <span class="mono">index.html</span> để client-side routing tiếp tục hoạt động.</p>
+            </article>
+            <article class="rounded-xl border border-amber-200 bg-amber-50 p-5">
+              <h3 class="font-bold text-amber-950">Request API và realtime</h3>
+              <p class="mt-2 text-sm leading-relaxed text-amber-950">Các đường dẫn <span class="mono">/health</span>, <span class="mono">/sessions</span>, <span class="mono">/auth/*</span> và <span class="mono">/socket.io/*</span> được reverse proxy tới NestJS. Caddy tự chuyển tiếp WebSocket upgrade, không cần cấu hình header thủ công.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="caddy" class="mb-16 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-slate-950">2. Caddy là gì và nằm ở đâu</h2>
+          <p class="mt-3 leading-relaxed text-slate-600">Caddy là web server và reverse proxy, cùng nhóm vai trò với Nginx hoặc Apache. Trong kiến trúc này, Caddy là cổng vào duy nhất của ứng dụng trên máy host: vừa phục vụ frontend tĩnh, vừa quyết định request nào phải chuyển sang backend.</p>
+          <div class="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50"><tr><th class="px-4 py-3">Trách nhiệm</th><th class="px-4 py-3">Caddy xử lý</th><th class="px-4 py-3">Không do Caddy xử lý</th></tr></thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr><td class="px-4 py-3 font-semibold">Static web</td><td class="px-4 py-3">HTML, JS, CSS, assets, SPA fallback</td><td class="px-4 py-3">Build source Expo</td></tr>
+                <tr><td class="px-4 py-3 font-semibold">Reverse proxy</td><td class="px-4 py-3">REST và Socket.IO tới API</td><td class="px-4 py-3">Business logic và database</td></tr>
+                <tr><td class="px-4 py-3 font-semibold">TLS</td><td class="px-4 py-3">Không cần TLS tại origin trong mô hình Tunnel</td><td class="px-4 py-3">HTTPS public kết thúc tại Cloudflare edge</td></tr>
+                <tr><td class="px-4 py-3 font-semibold">Process lifecycle</td><td class="px-4 py-3">Chạy nền bằng systemd</td><td class="px-4 py-3">Docker quản lý API/MySQL; cloudflared quản lý tunnel</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm leading-relaxed text-sky-950">
+            Caddy trong <span class="mono">apps/mobile/Dockerfile</span> hiện là Caddy chạy trong container web. Runbook này dùng Caddy cài trên host để đáp ứng đúng mô hình frontend ngoài Docker. Hai mô hình là lựa chọn thay thế, không chạy đồng thời trên cùng cổng <span class="mono">45104</span>.
+          </div>
+        </section>
+
+        <section id="chuan-bi" class="mb-16 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-slate-950">3. Chuẩn bị máy production</h2>
+          <div class="mt-5 space-y-4">
+            <article class="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 class="font-bold text-slate-900">3.1 Điều kiện</h3>
+              <ul class="mt-3 list-disc space-y-2 pl-5 text-sm text-slate-600">
+                <li>Node.js 22+, Docker Engine, Docker Compose v2, Git, curl và jq.</li>
+                <li><span class="mono">cloudflared</span> đã login bằng user triển khai; có <span class="mono">~/.cloudflared/cert.pem</span>.</li>
+                <li>Các script <span class="mono">~/.local/bin/cloudflare-deploy</span>, <span class="mono">cloudflare-publish</span> và template <span class="mono">~/.config/systemd/user/cloudflared-app@.service</span> đã được cài.</li>
+                <li>Domain <span class="mono">banhchungranchaydenxi.click</span> đang Active trên Cloudflare.</li>
+              </ul>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 class="font-bold text-slate-900">3.2 Cài Caddy từ repository chính thức</h3>
+              <pre class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"><code>sudo apt install -y debian-keyring debian-archive-keyring apt-transport-https curl
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
+  | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' \
+  | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+sudo chmod o+r /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+sudo chmod o+r /etc/apt/sources.list.d/caddy-stable.list
+sudo apt update
+sudo apt install -y caddy
+caddy version
+systemctl status caddy --no-pager</code></pre>
+              <p class="mt-3 text-sm text-slate-600">Package tạo user <span class="mono">caddy</span> và systemd service. Không chạy thêm một tiến trình <span class="mono">caddy run</span> thủ công song song với service.</p>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 class="font-bold text-slate-900">3.3 Tạo cấu hình môi trường</h3>
+              <pre class="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"><code>cd /home/kensnows/Learning/drinking_game_mobile
+cp .env.example .env
+chmod 600 .env
+openssl rand -hex 24
+openssl rand -hex 24</code></pre>
+              <p class="mt-3 text-sm text-slate-600">Điền mật khẩu MySQL và admin thật. Đặt <span class="mono">CORS_ORIGINS=https://chamly.banhchungranchaydenxi.click</span>. Không commit file <span class="mono">.env</span>.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="backend" class="mb-16 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-slate-950">4. Chạy backend và MySQL bằng Docker</h2>
+          <div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-5 text-sm leading-relaxed text-rose-950">
+            <strong>Phải sửa mapping API trước production.</strong> <span class="mono">compose.yaml</span> hiện dùng <span class="mono">'${API_PORT:-45100}:45100'</span>, mặc định bind <span class="mono">0.0.0.0</span> và có thể mở API ra LAN. Đổi thành <span class="mono">'127.0.0.1:${API_PORT:-45100}:45100'</span>. Mapping MySQL hiện đã bind loopback đúng cách.
+          </div>
+          <pre class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"><code>cd /home/kensnows/Learning/drinking_game_mobile
+docker compose --env-file .env -f compose.yaml config --quiet
+docker compose --env-file .env -f compose.yaml up -d --build --wait
+docker compose --env-file .env -f compose.yaml ps
+curl -i http://127.0.0.1:45100/health</code></pre>
+          <p class="mt-3 text-sm leading-relaxed text-slate-600">Backend phải trả <span class="mono">200 {"status":"ok"}</span> trước khi cấu hình Caddy. Lệnh tắt là <span class="mono">docker compose --env-file .env -f compose.yaml down</span>; không thêm <span class="mono">-v</span> vì cờ đó xóa volume MySQL.</p>
+        </section>
+
+        <section id="frontend" class="mb-16 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-slate-950">5. Build frontend ngoài Docker</h2>
+          <p class="mt-2 leading-relaxed text-slate-600">Lệnh export tạo bundle production trong <span class="mono">apps/mobile/dist</span>. API URL dùng cùng hostname public để browser chỉ giao tiếp same-origin qua Caddy.</p>
+          <pre class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"><code>cd /home/kensnows/Learning/drinking_game_mobile
+npm ci
+EXPO_PUBLIC_API_URL=https://chamly.banhchungranchaydenxi.click \
+  npm run export:web -w @chamly/app
+
+sudo install -d -o root -g caddy -m 0755 /srv/chamly
+sudo rsync -a --delete apps/mobile/dist/ /srv/chamly/
+sudo chown -R root:caddy /srv/chamly
+sudo find /srv/chamly -type d -exec chmod 0755 {} +
+sudo find /srv/chamly -type f -exec chmod 0644 {} +</code></pre>
+          <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-relaxed text-amber-950">
+            <strong>Không dùng <span class="mono">npm run web</span> cho production.</strong> Lệnh đó mở Expo dev server ở cổng <span class="mono">45102</span>, có hot reload và lifecycle phụ thuộc terminal. Nó phù hợp phát triển cục bộ, không thay thế static build + process manager.
+          </div>
+        </section>
+
+        <section id="cau-hinh" class="mb-16 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-slate-950">6. Cấu hình và kiểm tra Caddy</h2>
+          <p class="mt-2 text-slate-600">Ghi nội dung sau vào <span class="mono">/etc/caddy/Caddyfile</span>. Caddy chỉ nghe loopback để mọi traffic ngoài máy buộc phải đi qua Cloudflare.</p>
+          <pre class="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm"><code>http://127.0.0.1:45104 {
+    encode zstd gzip
+
+    @api path /socket.io/* /health /sessions /auth/*
+    handle @api {
+        reverse_proxy 127.0.0.1:45100
+    }
+
+    handle {
+        root * /srv/chamly
+        header /index.html Cache-Control "no-cache"
+        try_files {path} /index.html
+        file_server
+    }
+}</code></pre>
+          <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <article class="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 class="font-bold text-slate-900">Validate trước khi reload</h3>
+              <pre class="mt-3 rounded-lg bg-slate-50 p-4 text-sm"><code>sudo caddy fmt --overwrite /etc/caddy/Caddyfile
+sudo caddy validate --config /etc/caddy/Caddyfile
+sudo systemctl reload caddy</code></pre>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 class="font-bold text-slate-900">Kiểm tra origin hợp nhất</h3>
+              <pre class="mt-3 rounded-lg bg-slate-50 p-4 text-sm"><code>curl -I http://127.0.0.1:45104/
+curl -i http://127.0.0.1:45104/health
+curl -i "http://127.0.0.1:45104/socket.io/?EIO=4&amp;transport=polling"</code></pre>
+            </article>
+          </div>
+          <p class="mt-4 text-sm leading-relaxed text-slate-600">Nếu cấu hình mới lỗi, <span class="mono">validate</span> chặn trước khi reload. Log nằm trong journal: <span class="mono">journalctl -u caddy -n 100 --no-pager</span>.</p>
+        </section>
+
+        <section id="tunnel" class="mb-16 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-slate-950">7. Public Caddy bằng cf-deploy</h2>
+          <div class="mt-5 space-y-4">
+            <article class="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 class="font-bold text-slate-900">7.1 Nạp shell function và chạy dry-run</h3>
+              <pre class="mt-3 rounded-lg bg-slate-50 p-4 text-sm"><code>source ~/.bashrc
+cf-deploy chamly chamly --mode port --port 45104 --dry-run</code></pre>
+              <p class="mt-3 text-sm text-slate-600">Kế hoạch phải in origin <span class="mono">http://127.0.0.1:45104</span> và public URL <span class="mono">https://chamly.banhchungranchaydenxi.click</span>.</p>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 class="font-bold text-slate-900">7.2 Tạo tunnel, DNS, ingress và service</h3>
+              <pre class="mt-3 rounded-lg bg-slate-50 p-4 text-sm"><code>cf-deploy chamly chamly --mode port --port 45104</code></pre>
+              <p class="mt-3 text-sm leading-relaxed text-slate-600">Script kiểm tra origin, tạo hoặc dùng tunnel <span class="mono">chamly</span>, tạo CNAME, ghi config <span class="mono">~/.cloudflared/apps/chamly.yml</span>, validate ingress, restart <span class="mono">cloudflared-app@chamly.service</span> và kiểm tra URL HTTPS. Mỗi hostname có tunnel riêng nên dừng Chạm Ly không ảnh hưởng tunnel tài liệu hoặc app khác.</p>
+            </article>
+            <article class="rounded-xl border border-slate-200 bg-white p-5">
+              <h3 class="font-bold text-slate-900">7.3 Kiểm tra đầu cuối</h3>
+              <pre class="mt-3 rounded-lg bg-slate-50 p-4 text-sm"><code>cf-deploy list
+cf-publish-status chamly 45104 /health
+curl -i https://chamly.banhchungranchaydenxi.click/health
+curl -i "https://chamly.banhchungranchaydenxi.click/socket.io/?EIO=4&amp;transport=polling"
+systemctl --user status cloudflared-app@chamly.service</code></pre>
+              <p class="mt-3 text-sm text-slate-600">Sau các lệnh HTTP, mở hai trình duyệt hoặc hai thiết bị ở hai mạng khác nhau và chơi cùng một phòng để xác nhận WebSocket thật sự hoạt động.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="van-hanh" class="mb-16 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-slate-950">8. Quy trình cập nhật và vận hành</h2>
+          <div class="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-2">
+            <article class="rounded-xl border border-emerald-200 bg-emerald-50 p-5">
+              <h3 class="font-bold text-emerald-950">Cập nhật frontend</h3>
+              <pre class="mt-3 rounded-lg border border-emerald-200 bg-white p-4 text-sm"><code>git pull
+npm ci
+EXPO_PUBLIC_API_URL=https://chamly.banhchungranchaydenxi.click \
+  npm run export:web -w @chamly/app
+sudo rsync -a --delete apps/mobile/dist/ /srv/chamly/</code></pre>
+              <p class="mt-3 text-sm text-emerald-950">Không cần restart Caddy khi chỉ thay file tĩnh.</p>
+            </article>
+            <article class="rounded-xl border border-amber-200 bg-amber-50 p-5">
+              <h3 class="font-bold text-amber-950">Cập nhật backend</h3>
+              <pre class="mt-3 rounded-lg border border-amber-200 bg-white p-4 text-sm"><code>docker compose --env-file .env -f compose.yaml \
+  up -d --build --wait api
+curl -i http://127.0.0.1:45104/health</code></pre>
+              <p class="mt-3 text-sm text-amber-950">MySQL volume được giữ nguyên. API có gián đoạn ngắn trong lúc thay container.</p>
+            </article>
+          </div>
+          <div class="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50"><tr><th class="px-4 py-3">Việc</th><th class="px-4 py-3">Lệnh</th></tr></thead>
+              <tbody class="divide-y divide-slate-100 mono text-xs">
+                <tr><td class="px-4 py-3 font-sans">Log Caddy</td><td class="px-4 py-3">journalctl -u caddy -f</td></tr>
+                <tr><td class="px-4 py-3 font-sans">Log tunnel</td><td class="px-4 py-3">journalctl --user -u cloudflared-app@chamly -f</td></tr>
+                <tr><td class="px-4 py-3 font-sans">Log API</td><td class="px-4 py-3">docker compose --env-file .env -f compose.yaml logs -f api</td></tr>
+                <tr><td class="px-4 py-3 font-sans">Tắt public tạm thời</td><td class="px-4 py-3">systemctl --user stop cloudflared-app@chamly</td></tr>
+                <tr><td class="px-4 py-3 font-sans">Bật lại public</td><td class="px-4 py-3">systemctl --user start cloudflared-app@chamly</td></tr>
+                <tr><td class="px-4 py-3 font-sans">Gỡ tunnel</td><td class="px-4 py-3">cf-deploy remove chamly</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mt-4 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm leading-relaxed text-indigo-950">Muốn user service tunnel chạy ngay sau reboot mà không cần đăng nhập, chạy một lần <span class="mono">sudo loginctl enable-linger kensnows</span>. Caddy và Docker là system service; tunnel trong cấu hình script là user service.</div>
+        </section>
+
+        <section id="canh-bao" class="mb-16 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-slate-950">9. Các điểm cần xử lý trước production thật</h2>
+          <div class="mt-5 space-y-4">
+            <article class="rounded-xl border border-rose-200 bg-rose-50 p-5">
+              <h3 class="font-bold text-rose-950">API đang bind ra mọi interface host trong compose development</h3>
+              <p class="mt-2 text-sm leading-relaxed text-rose-950">Đổi mapping API sang <span class="mono">127.0.0.1:${API_PORT:-45100}:45100</span>. Nếu không, thiết bị trong LAN có thể gọi API trực tiếp và bỏ qua Caddy/Cloudflare.</p>
+            </article>
+            <article class="rounded-xl border border-rose-200 bg-rose-50 p-5">
+              <h3 class="font-bold text-rose-950">Rate limit hiện có nguy cơ gộp mọi người dùng thành một IP</h3>
+              <p class="mt-2 text-sm leading-relaxed text-rose-950">Route <span class="mono">/sessions</span> giới hạn theo <span class="mono">req.ip</span>, nhưng request đi qua Cloudflare, cloudflared và Caddy. Backend hiện chưa cấu hình trust proxy hoặc đọc <span class="mono">CF-Connecting-IP</span>; vì vậy mọi người dùng có thể bị nhìn thành địa chỉ proxy nội bộ và cùng chia sẻ giới hạn 20 request/phút. Cần sửa backend và thêm test trước khi coi cấu hình này production-ready.</p>
+            </article>
+            <article class="rounded-xl border border-amber-200 bg-amber-50 p-5">
+              <h3 class="font-bold text-amber-950">Script cf-deploy phụ thuộc máy đã cài sẵn bộ helper</h3>
+              <p class="mt-2 text-sm leading-relaxed text-amber-950">Script và systemd template hiện nằm trong home của user, không nằm trong repo. Khi chuyển sang VPS khác, cần cài/copy bộ helper, login Cloudflare trên VPS, hoặc dùng phương án cloudflared container/token trong <span class="mono">DEPLOYMENT.md</span>. Không thể chỉ clone repo rồi gọi <span class="mono">cf-deploy</span> trên một máy sạch.</p>
+            </article>
+            <article class="rounded-xl border border-amber-200 bg-amber-50 p-5">
+              <h3 class="font-bold text-amber-950">Không chạy trùng tunnel UUID trên máy cũ và máy mới</h3>
+              <p class="mt-2 text-sm leading-relaxed text-amber-950">Cloudflare coi đó là nhiều connector và có thể chia request giữa hai máy. Khi chuyển production, dừng connector cũ hoặc tạo tunnel production riêng.</p>
+            </article>
+          </div>
+        </section>
+
+        <section id="tham-khao" class="mb-20 scroll-mt-8">
+          <h2 class="text-2xl font-bold text-slate-950">10. File đã đối chiếu</h2>
+          <div class="mt-5 overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <table class="w-full text-left text-sm">
+              <thead class="bg-slate-50"><tr><th class="px-4 py-3">File</th><th class="px-4 py-3">Thông tin xác nhận</th></tr></thead>
+              <tbody class="divide-y divide-slate-100">
+                <tr><td class="mono px-4 py-3 text-xs">compose.yaml</td><td class="px-4 py-3">API 45100, MySQL 45101, healthcheck và mapping port hiện tại.</td></tr>
+                <tr><td class="mono px-4 py-3 text-xs">deploy/Caddyfile</td><td class="px-4 py-3">Các route REST/Socket.IO và SPA fallback hiện dùng trong image production.</td></tr>
+                <tr><td class="mono px-4 py-3 text-xs">apps/mobile/Dockerfile</td><td class="px-4 py-3">Expo export và thư mục output được copy vào Caddy.</td></tr>
+                <tr><td class="mono px-4 py-3 text-xs">apps/mobile/src/connection.ts</td><td class="px-4 py-3">API URL được nhúng khi build; production dùng hostname HTTPS.</td></tr>
+                <tr><td class="mono px-4 py-3 text-xs">apps/api/src/main.ts</td><td class="px-4 py-3">API bind 0.0.0.0 trong container và rate limit đang dựa trên req.ip.</td></tr>
+                <tr><td class="mono px-4 py-3 text-xs">~/.local/bin/cloudflare-deploy</td><td class="px-4 py-3">Thứ tự auto-detect và cách ép mode port.</td></tr>
+                <tr><td class="mono px-4 py-3 text-xs">~/.local/bin/cloudflare-publish</td><td class="px-4 py-3">Tạo tunnel riêng, DNS, ingress, service và verify public URL.</td></tr>
+                <tr><td class="mono px-4 py-3 text-xs">CloudflareTunnels/cloudflare-tunnel-cli.html#cf-deploy</td><td class="px-4 py-3">Quy trình và giao diện lệnh cf-deploy gốc.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="mt-5 text-sm text-slate-600">Caddy chính thức: <a class="text-indigo-700 underline" href="https://caddyserver.com/docs/install#debian-ubuntu-raspbian">Install on Debian/Ubuntu</a> · <a class="text-indigo-700 underline" href="https://caddyserver.com/docs/caddyfile/directives/reverse_proxy">reverse_proxy</a> · <a class="text-indigo-700 underline" href="https://caddyserver.com/docs/running#using-the-service">systemd service</a>.</div>
+        </section>
+      </main>
+    </div>
+    <script>
+      const links = document.querySelectorAll('.nav-link');
+      const sections = document.querySelectorAll('main section[id]');
+      const observer = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+          if (!entry.isIntersecting) return;
+          links.forEach((link) => link.classList.remove('active'));
+          document.querySelector(`.nav-link[href="#${entry.target.id}"]`)?.classList.add('active');
+        });
+      }, { rootMargin: '-20% 0px -70% 0px' });
+      sections.forEach((section) => observer.observe(section));
+    </script>
+  </body>
+</html>

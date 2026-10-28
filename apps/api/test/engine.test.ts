@@ -144,3 +144,44 @@ test('keepable cards go to the pouch without penalty and can be played later', (
   assert.equal(s.history.at(-1)?.fromPouch, true);
   assert.equal(s.pouchCard, null);
 });
+
+test('only the other players vote, one vote each, with ties counting as not completed', () => {
+  const s = game(3);
+  applyAction(s, 'host', { type: 'start' });
+  s.slots[0].card = DEFAULT_CARDS[1]; // Challenge, regardless of shuffle.
+  applyAction(s, 'host', { type: 'pick', slot: 0 });
+  applyAction(s, 'host', { type: 'requestVote', drinks: 2 });
+  assert.throws(() => applyAction(s, 'host', { type: 'vote', accepted: true }), /không tự/);
+  assert.throws(
+    () => applyAction(s, 'host', { type: 'complete', drinks: 0, completed: true }),
+    /bình chọn/,
+  );
+  applyAction(s, 'p1', { type: 'vote', accepted: true });
+  assert.throws(() => applyAction(s, 'p1', { type: 'vote', accepted: true }), /đã bình chọn/);
+  assert.equal(s.history.length, 0);
+  applyAction(s, 'p2', { type: 'vote', accepted: false });
+  assert.deepEqual(s.history[0].votes, { accepted: 1, rejected: 1 });
+  assert.equal(s.history[0].completed, false);
+  assert.equal(s.players[0].drinksTaken, 2);
+  assert.equal(s.turn, 1);
+  assert.equal(s.vote, null);
+});
+
+test('votes can be cancelled or completed when a voter leaves', () => {
+  const s = game(3);
+  applyAction(s, 'host', { type: 'start' });
+  s.slots[0].card = DEFAULT_CARDS[0];
+  applyAction(s, 'host', { type: 'pick', slot: 0 });
+  applyAction(s, 'host', { type: 'requestVote', drinks: 1 });
+  applyAction(s, 'p1', { type: 'vote', accepted: true });
+  applyAction(s, 'p2', { type: 'leave' });
+  assert.equal(s.history[0].completed, true);
+  assert.deepEqual(s.history[0].votes, { accepted: 1, rejected: 0 });
+  s.slots[1].card = DEFAULT_CARDS[0];
+  applyAction(s, 'p1', { type: 'pick', slot: 1 });
+  applyAction(s, 'p1', { type: 'requestVote', drinks: 1 });
+  assert.throws(() => applyAction(s, 'host', { type: 'cancelVote' }), /lượt/);
+  applyAction(s, 'p1', { type: 'cancelVote' });
+  applyAction(s, 'p1', { type: 'complete', drinks: 0, completed: true });
+  assert.equal(s.players[1].challengesCompleted, 1);
+});

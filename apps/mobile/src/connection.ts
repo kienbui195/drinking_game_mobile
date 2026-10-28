@@ -11,10 +11,14 @@ const privateBrowserHost =
   (browserHostname === 'localhost' ||
     browserHostname === '127.0.0.1' ||
     /^10\.|^192\.168\.|^172\.(1[6-9]|2\d|3[01])\./.test(browserHostname));
-// In development, follow the hostname used to open the web app so a changed LAN IP cannot leave
-// an old API address embedded in Metro's bundle. Production continues to use the configured URL.
+// In development, follow the LAN hostname used to open the web app. A production build served
+// locally uses Caddy's same-origin API proxy instead of accidentally contacting the dev backend.
 export const apiUrl = (
-  privateBrowserHost ? `http://${browserHostname}:45100` : configuredApiUrl
+  privateBrowserHost
+    ? configuredApiUrl.startsWith('https://')
+      ? globalThis.location.origin
+      : `http://${browserHostname}:45100`
+    : configuredApiUrl
 ).replace(/\/$/, '');
 const key = 'chamly.session.v1';
 const tokenKey = 'chamly.token.v1';

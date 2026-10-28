@@ -35,6 +35,7 @@ export function CardModal({
   room,
   card,
   mine,
+  playerId,
   playerName,
   pouchCount,
   fromPouch,
@@ -44,6 +45,7 @@ export function CardModal({
   room: RoomView;
   card: Card;
   mine: boolean;
+  playerId: string;
   playerName: string;
   pouchCount: number;
   fromPouch: boolean;
@@ -51,6 +53,8 @@ export function CardModal({
   send: (action: Action) => Promise<boolean>;
 }) {
   const pack = packById(room.packId);
+  const vote = room.vote;
+  const canVote = card.category === 'challenge' || card.category === 'minigame';
   const [drinks, setDrinks] = useState(card.drinksCount);
   const [now, setNow] = useState(Date.now());
   const [offset, setOffset] = useState(0);
@@ -125,13 +129,21 @@ export function CardModal({
                   </>
                 )}
               </ScrollView>
+              {vote && (
+                <Copy>
+                  Bình chọn kết quả · {vote.votedPlayerIds.length}/{vote.total} phiếu
+                  {vote.votedPlayerIds.includes(playerId) ? ' · Bạn đã bình chọn' : ''}
+                </Copy>
+              )}
               {mine ? (
                 <View className="gap-3 border-t border-slate-700 pt-3">
-                  <Button
-                    title={pack.completeLabel}
-                    disabled={busy}
-                    onPress={() => void send({ type: 'complete', drinks: 0, completed: true })}
-                  />
+                  {!vote && (
+                    <Button
+                      title={pack.completeLabel}
+                      disabled={busy}
+                      onPress={() => void send({ type: 'complete', drinks: 0, completed: true })}
+                    />
+                  )}
                   <View className="flex-row items-center justify-between gap-3">
                     <Button
                       title="−"
@@ -152,13 +164,31 @@ export function CardModal({
                       onPress={() => setDrinks((v) => v + 1)}
                     />
                   </View>
-                  <Button
-                    title={`${pack.skipLabel} · ${drinks} ${pack.unitLabel}`}
-                    secondary
-                    disabled={busy}
-                    onPress={() => void send({ type: 'complete', drinks, completed: false })}
-                  />
-                  {card.keepable && !fromPouch && (
+                  {!vote && (
+                    <Button
+                      title={`${pack.skipLabel} · ${drinks} ${pack.unitLabel}`}
+                      secondary
+                      disabled={busy}
+                      onPress={() => void send({ type: 'complete', drinks, completed: false })}
+                    />
+                  )}
+                  {canVote && !vote && (
+                    <Button
+                      title="Nhờ cả bàn bình chọn kết quả"
+                      secondary
+                      disabled={busy}
+                      onPress={() => void send({ type: 'requestVote', drinks })}
+                    />
+                  )}
+                  {vote && (
+                    <Button
+                      title="Hủy bình chọn · tự xác nhận"
+                      secondary
+                      disabled={busy}
+                      onPress={() => void send({ type: 'cancelVote' })}
+                    />
+                  )}
+                  {!vote && card.keepable && !fromPouch && (
                     <Button
                       title={
                         pouchCount >= pouchLimit
@@ -172,8 +202,29 @@ export function CardModal({
                   )}
                 </View>
               ) : (
-                <View className="border-t border-slate-700 pt-3">
-                  <Copy>Đang chờ {playerName} xác nhận kết quả…</Copy>
+                <View className="border-t border-slate-700 pt-3 gap-2">
+                  {vote && !vote.votedPlayerIds.includes(playerId) ? (
+                    <>
+                      <Copy>{playerName} đã thực hiện xong? Bạn đánh giá thế nào?</Copy>
+                      <Button
+                        title="Bình chọn · Đạt"
+                        disabled={busy}
+                        onPress={() => void send({ type: 'vote', accepted: true })}
+                      />
+                      <Button
+                        title="Bình chọn · Chưa đạt"
+                        secondary
+                        disabled={busy}
+                        onPress={() => void send({ type: 'vote', accepted: false })}
+                      />
+                    </>
+                  ) : (
+                    <Copy>
+                      {vote
+                        ? 'Đang chờ các phiếu còn lại…'
+                        : `Đang chờ ${playerName} xác nhận kết quả…`}
+                    </Copy>
+                  )}
                 </View>
               )}
             </Panel>

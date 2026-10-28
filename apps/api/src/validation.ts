@@ -22,6 +22,9 @@ export const commandSchema = z.object({
   revision: z.number().int().nonnegative(),
   action: z.discriminatedUnion('type', [
     z.object({ type: z.literal('saveDeck'), cards: z.array(cardSchema).min(2).max(200) }),
+    z.object({ type: z.literal('requestVote'), drinks: z.number().int().min(0).max(20) }),
+    z.object({ type: z.literal('vote'), accepted: z.boolean() }),
+    z.object({ type: z.literal('cancelVote') }),
     z.object({ type: z.literal('start') }),
     z.object({ type: z.literal('pick'), slot: z.number().int().min(0).max(11) }),
     z.object({
@@ -76,4 +79,11 @@ export const deckCloneSchema = deckCreateSchema;
 export const deckUpdateSchema = deckIdSchema.extend({
   name: text(60).optional(),
   cards: z.array(cardSchema).min(0).max(200).optional(),
+});
+export const systemDeckSchema = z.object({
+  packId: z.enum(packs.map((p) => p.id) as [string, ...string[]]),
+});
+export const systemDeckUpdateSchema = systemDeckSchema.extend({
+  revision: z.number().int().nonnegative(),
+  cards: z.array(cardSchema).min(2).max(200),
 });

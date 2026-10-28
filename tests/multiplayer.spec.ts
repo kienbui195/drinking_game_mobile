@@ -1,4 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
+import { randomUUID } from 'node:crypto';
+import { io } from 'socket.io-client';
+import type { Reply, RoomView } from '@chamly/shared';
 
 test('two independent browsers create, edit, join, play and resume', async ({ browser }) => {
   const a = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -47,7 +50,7 @@ test('two independent browsers create, edit, join, play and resume', async ({ br
     const roomCode = host.getByLabel(/^Mã phòng [A-F0-9]{6}$/);
     await expect(roomCode).toBeVisible();
     const code = (await roomCode.innerText()).replace('#', '').trim();
-    await host.getByRole('button', { name: 'Chỉnh bộ bài · 50 lá', exact: true }).click();
+    await host.getByRole('button', { name: 'Chỉnh bộ bài · 54 lá', exact: true }).click();
     await host.getByRole('button', { name: 'Sửa', exact: true }).first().click();
     await host.getByLabel('Tên lá bài', { exact: true }).fill('Lá bài đã sửa UI');
     await host.getByRole('button', { name: 'Xong lá bài', exact: true }).click();
@@ -56,11 +59,40 @@ test('two independent browsers create, edit, join, play and resume', async ({ br
     await host.getByLabel('Nội dung', { exact: true }).fill('Kể một câu chuyện vui.');
     await host.getByLabel('Hình phạt / kết quả', { exact: true }).fill('Cả bàn vỗ tay.');
     await host.getByRole('button', { name: 'Xong lá bài', exact: true }).click();
-    await expect(host.getByText('Bộ bài · 51 lá', { exact: true })).toBeVisible();
+    await expect(host.getByText('Bộ bài · 55 lá', { exact: true })).toBeVisible();
     await host.getByRole('button', { name: 'Xóa', exact: true }).last().click();
-    await expect(host.getByText('Bộ bài · 50 lá', { exact: true })).toBeVisible();
-    await host.getByRole('button', { name: 'Lưu bộ bài (50 lá)', exact: true }).click();
-    await expect(host.getByText('Bộ bài · 50 lá', { exact: true })).not.toBeVisible();
+    await expect(host.getByText('Bộ bài · 54 lá', { exact: true })).toBeVisible();
+    await host.getByRole('button', { name: 'Lưu bộ bài (54 lá)', exact: true }).click();
+    await expect(host.getByText('Bộ bài · 54 lá', { exact: true })).not.toBeVisible();
+    // Pin a small all-challenge room deck so the vote path is deterministic after shuffle.
+    const storedSession = await host.evaluate(() => localStorage.getItem('chamly.session.v1'));
+    const token = JSON.parse(storedSession!).token as string;
+    const socket = io('http://localhost:45100', { auth: { token }, autoConnect: false });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        socket.once('connect', () => resolve());
+        socket.once('connect_error', reject);
+        socket.connect();
+      });
+      const rpc = <T>(event: string, body: unknown): Promise<T> =>
+        new Promise((resolve, reject) =>
+          socket.emit(event, body, (reply: Reply<T>) =>
+            reply.ok ? resolve(reply.data) : reject(new Error(reply.message)),
+          ),
+        );
+      const snapshot = await rpc<RoomView>('room:sync', { roomId: code });
+      await rpc<RoomView>('room:command', {
+        roomId: code,
+        revision: snapshot.revision,
+        requestId: randomUUID(),
+        action: {
+          type: 'saveDeck',
+          cards: snapshot.deck.filter((card) => card.category === 'challenge').slice(0, 4),
+        },
+      });
+    } finally {
+      socket.disconnect();
+    }
     await guest.getByRole('button', { name: 'Nhập mã phòng', exact: true }).click();
     await guest.getByLabel('Mã phòng (6 ký tự)', { exact: true }).fill(code);
     await guest
@@ -88,7 +120,9 @@ test('two independent browsers create, edit, join, play and resume', async ({ br
     await expect(
       host.getByRole('button', { name: 'Đã hoàn thành thử thách', exact: true }),
     ).toBeVisible();
-    await host.getByRole('button', { name: 'Đã hoàn thành thử thách', exact: true }).click();
+    await host.getByRole('button', { name: 'Nhờ cả bàn bình chọn kết quả' }).click();
+    await expect(guest.getByRole('button', { name: 'Bình chọn · Đạt' })).toBeVisible();
+    await guest.getByRole('button', { name: 'Bình chọn · Đạt' }).click();
     await expect(guest.getByText('Đến lượt bạn!')).toBeVisible();
     // Bấm lần đầu chỉ cuốn lá 2 vào giữa, bấm lần thứ hai mới lật.
     await guest.getByRole('button', { name: 'Lá bài 2', exact: true }).click();
@@ -101,6 +135,9 @@ test('two independent browsers create, edit, join, play and resume', async ({ br
     await expect(host.getByText(/^V2 · \d+ lá$/)).toBeVisible();
     await guest.getByRole('button', { name: 'Rời phòng', exact: true }).click();
     await expect(host.getByText('Hẹn ván tiếp theo ✨')).toBeVisible();
+    await expect(host.getByText('✨ Tổng kết ván chơi')).toBeVisible();
+    await expect(host.getByText(/Rút nhiều bài nhất:/)).toBeVisible();
+    await expect(host.getByText(/cả bàn bình chọn 1 đạt/)).toBeVisible();
     await host.getByRole('button', { name: 'Rời phòng', exact: true }).click();
     expect(errors).toEqual([]);
   } finally {

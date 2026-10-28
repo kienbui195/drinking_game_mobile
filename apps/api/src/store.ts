@@ -16,13 +16,17 @@ import {
   type OwnedDeck,
   type Profile,
   type RoomSummary,
+  type SystemDeck,
 } from '@chamly/shared';
 import { applyAction, ensure, GameError, initialState, newPlayer } from './engine';
 import { PACK_DECKS } from './packs';
+import { GROUP_CARDS } from './packs/group-cards';
 import { packById } from '@chamly/shared';
 
 const scrypt = promisify(scryptCallback);
 const ttl = 24 * 60 * 60 * 1000;
+export const offlineTtl = 30 * 60 * 1000;
+const sessionTtl = 7 * ttl;
 // Phòng một người vẫn có thể đang được chủ phòng ngồi soạn bộ bài, nên giữ đủ lâu để làm việc
 // đó rồi mới thu hồi tài nguyên.
 export const soloTtl = 10 * 60 * 1000;
@@ -57,6 +61,7 @@ export interface StoredRoom {
   revision: number;
   receipts: string[];
   expiresAt: number;
+  offlineSince: number | null;
 }
 const roomFromRow = (r: RowDataPacket): StoredRoom => ({
   id: r.id,
@@ -66,6 +71,7 @@ const roomFromRow = (r: RowDataPacket): StoredRoom => ({
   revision: r.revision,
   receipts: decode(r.receipts),
   expiresAt: Number(r.expires_at),
+  offlineSince: r.offline_since == null ? null : Number(r.offline_since),
 });
 const displayNameChangeInterval = 7 * 24 * 60 * 60 * 1000;
 const passwordHash = async (password: string) => {
@@ -98,12 +104,14 @@ export class Store implements OnModuleInit, OnModuleDestroy {
   onExpired?: (ids: string[]) => void;
   private cleanup?: ReturnType<typeof setInterval>;
   async onModuleInit() {
+    // DATABASE_* do `svc db-create` trên VPS sinh ra; DB_*/MYSQL_* dùng cho stack local.
+    const env = process.env;
     this.pool = mysql.createPool({
-      host: process.env.DB_HOST ?? '127.0.0.1',
-      port: Number(process.env.DB_PORT ?? 45101),
-      user: process.env.MYSQL_USER ?? 'chamly',
-      password: process.env.MYSQL_PASSWORD ?? 'local-app-change-me',
-      database: process.env.MYSQL_DATABASE ?? 'chamly',
+      host: env.DATABASE_HOST ?? env.DB_HOST ?? '127.0.0.1',
+      port: Number(env.DATABASE_PORT ?? env.DB_PORT ?? 45101),
+      user: env.DATABASE_USERNAME ?? env.MYSQL_USER ?? 'chamly',
+      password: env.DATABASE_PASSWORD ?? env.MYSQL_PASSWORD ?? 'local-app-change-me',
+      database: env.DATABASE_NAME ?? env.MYSQL_DATABASE ?? 'chamly',
       connectionLimit: 10,
       charset: 'utf8mb4',
       supportBigNumbers: true,
@@ -130,6 +138,16 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       );
       if (!columns[0]) await this.pool.query(`ALTER TABLE sessions ADD COLUMN ${definition}`);
     }
+    // Cap older 30-day sessions as well; legacy rows without started_at derive it once so
+    // repeated restarts never shorten an already capped session again.
+    await this.pool.execute(
+      'UPDATE sessions SET started_at = expires_at - ? WHERE started_at IS NULL',
+      [30 * ttl],
+    );
+    await this.pool.execute(
+      'UPDATE sessions SET expires_at = started_at + ? WHERE expires_at > started_at + ?',
+      [sessionTtl, sessionTtl],
+    );
     await this.pool.query(`CREATE TABLE IF NOT EXISTS session_durations (
       session_id CHAR(36) PRIMARY KEY, user_id CHAR(36) NOT NULL,
       started_at BIGINT NOT NULL, ended_at BIGINT NOT NULL, INDEX(user_id))`);
@@ -141,16 +159,47 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       deck_id CHAR(36) NOT NULL, card_id VARCHAR(80) NOT NULL, position INT NOT NULL,
       card JSON NOT NULL, PRIMARY KEY(deck_id, card_id), INDEX(deck_id, position))`);
     await this.pool.query(`CREATE TABLE IF NOT EXISTS default_decks (
-      id VARCHAR(40) PRIMARY KEY, cards JSON NOT NULL)`);
+      id VARCHAR(40) PRIMARY KEY, cards JSON NOT NULL, revision INT NOT NULL DEFAULT 0,
+      group_cards_seeded TINYINT(1) NOT NULL DEFAULT 0)`);
+    const [deckRevision] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'default_decks' AND column_name = 'revision'`,
+    );
+    if (!deckRevision[0])
+      await this.pool.query('ALTER TABLE default_decks ADD COLUMN revision INT NOT NULL DEFAULT 0');
+    const [groupSeedColumn] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'default_decks' AND column_name = 'group_cards_seeded'`,
+    );
+    if (!groupSeedColumn[0])
+      await this.pool.query(
+        'ALTER TABLE default_decks ADD COLUMN group_cards_seeded TINYINT(1) NOT NULL DEFAULT 0',
+      );
     await this.pool.query(`CREATE TABLE IF NOT EXISTS rooms (
       id CHAR(6) PRIMARY KEY, name VARCHAR(60) NOT NULL, password_hash VARCHAR(200) NOT NULL,
       state JSON NOT NULL, revision INT NOT NULL DEFAULT 0, receipts JSON NOT NULL,
-      expires_at BIGINT NOT NULL, create_key CHAR(64) NOT NULL UNIQUE, INDEX(expires_at))`);
+      expires_at BIGINT NOT NULL, create_key CHAR(64) NOT NULL UNIQUE, INDEX(expires_at),
+      offline_since BIGINT NULL, INDEX(offline_since))`);
+    const [offlineColumn] = await this.pool.execute<RowDataPacket[]>(
+      `SELECT 1 FROM information_schema.columns
+       WHERE table_schema = DATABASE() AND table_name = 'rooms' AND column_name = 'offline_since'`,
+    );
+    if (!offlineColumn[0])
+      await this.pool.query(
+        'ALTER TABLE rooms ADD COLUMN offline_since BIGINT NULL, ADD INDEX(offline_since)',
+      );
+    // Sau khi API khởi động lại, chưa có socket nào vào phòng. Giữ nguyên đồng hồ offline cũ.
+    const bootTime = Date.now();
+    await this.pool.execute(
+      'UPDATE rooms SET offline_since = ?, expires_at = GREATEST(expires_at, ?) WHERE offline_since IS NULL AND expires_at > ?',
+      [bootTime, bootTime + offlineTtl, bootTime],
+    );
     for (const [id, cards] of Object.entries(PACK_DECKS))
       await this.pool.execute('INSERT IGNORE INTO default_decks (id, cards) VALUES (?, ?)', [
         id,
         JSON.stringify(cards),
       ]);
+    await this.seedGroupCards();
     this.cleanup = setInterval(() => {
       void this.prune().catch(console.error);
     }, 10_000);
@@ -161,14 +210,47 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     clearInterval(this.cleanup);
     await this.pool.end();
   }
+  private async seedGroupCards() {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.execute<RowDataPacket[]>(
+        'SELECT cards, group_cards_seeded FROM default_decks WHERE id = ? FOR UPDATE',
+        [defaultPackId],
+      );
+      if (rows[0] && !Number(rows[0].group_cards_seeded)) {
+        const cards = decode<Card[]>(rows[0].cards);
+        const missing = GROUP_CARDS.filter((card) => !cards.some((saved) => saved.id === card.id));
+        await conn.execute(
+          'UPDATE default_decks SET cards = ?, revision = revision + ?, group_cards_seeded = 1 WHERE id = ?',
+          [JSON.stringify([...cards, ...missing]), Number(missing.length > 0), defaultPackId],
+        );
+      }
+      await conn.commit();
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
   async prune(): Promise<string[]> {
     const now = Date.now();
     const [rows] = await this.pool.execute<RowDataPacket[]>(
-      'SELECT id FROM rooms WHERE expires_at < ?',
-      [now],
+      `SELECT id FROM rooms WHERE expires_at < ? OR offline_since <= ?
+       OR NOT JSON_CONTAINS(JSON_EXTRACT(state, '$.players'), JSON_OBJECT('active', true))`,
+      [now, now - offlineTtl],
     );
-    const ids = rows.map((r) => r.id as string);
-    if (ids.length) await this.pool.execute('DELETE FROM rooms WHERE expires_at < ?', [now]);
+    const ids: string[] = [];
+    for (const row of rows) {
+      // Recheck atomically: another socket may reconnect between SELECT and DELETE.
+      const [deleted] = await this.pool.execute<mysql.ResultSetHeader>(
+        `DELETE FROM rooms WHERE id = ? AND (expires_at < ? OR offline_since <= ?
+         OR NOT JSON_CONTAINS(JSON_EXTRACT(state, '$.players'), JSON_OBJECT('active', true)))`,
+        [row.id, now, now - offlineTtl],
+      );
+      if (deleted.affectedRows) ids.push(row.id);
+    }
     const [expired] = await this.pool.execute<RowDataPacket[]>(
       'SELECT id, user_id, started_at FROM sessions WHERE expires_at < ? AND user_id IS NOT NULL',
       [now],
@@ -184,12 +266,48 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     if (ids.length) this.onExpired?.(ids);
     return ids;
   }
+  /** Store the moment the last connected member left; persist across backend restarts. */
+  async setPresence(id: string, online: boolean) {
+    const conn = await this.pool.getConnection();
+    try {
+      await conn.beginTransaction();
+      const [rows] = await conn.execute<RowDataPacket[]>(
+        'SELECT state, expires_at, offline_since FROM rooms WHERE id = ? FOR UPDATE',
+        [id],
+      );
+      if (
+        rows[0] &&
+        Number(rows[0].expires_at) > Date.now() &&
+        (rows[0].offline_since == null || Number(rows[0].offline_since) + offlineTtl > Date.now())
+      ) {
+        const now = Date.now();
+        if (online) {
+          await conn.execute('UPDATE rooms SET offline_since = NULL, expires_at = ? WHERE id = ?', [
+            now + lifespan(decode<GameState>(rows[0].state)),
+            id,
+          ]);
+        } else {
+          const since = rows[0].offline_since == null ? now : Number(rows[0].offline_since);
+          await conn.execute(
+            'UPDATE rooms SET offline_since = ?, expires_at = GREATEST(expires_at, ?) WHERE id = ?',
+            [since, since + offlineTtl, id],
+          );
+        }
+      }
+      await conn.commit();
+    } catch (error) {
+      await conn.rollback();
+      throw error;
+    } finally {
+      conn.release();
+    }
+  }
   async createIdentity(name: string) {
     const token = randomBytes(32).toString('hex');
     const id = randomUUID();
     await this.pool.execute(
       'INSERT INTO sessions (id, token_hash, name, expires_at, started_at) VALUES (?, ?, ?, ?, ?)',
-      [id, hash(token), name, Date.now() + 30 * ttl, Date.now()],
+      [id, hash(token), name, Date.now() + sessionTtl, Date.now()],
     );
     return { token, playerId: id, name };
   }
@@ -223,7 +341,7 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     await this.pool.execute(
       `INSERT INTO sessions (id, token_hash, name, expires_at, user_id, started_at, is_admin)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      [id, hash(token), user.displayName, now + 30 * ttl, user.id ?? null, now, Number(isAdmin)],
+      [id, hash(token), user.displayName, now + sessionTtl, user.id ?? null, now, Number(isAdmin)],
     );
     return {
       token,
@@ -391,11 +509,30 @@ export class Store implements OnModuleInit, OnModuleDestroy {
     return this.profile({ ...identity, name: displayName });
   }
   async defaultDeck(packId = defaultPackId): Promise<Card[]> {
+    return (await this.systemDeck(packId)).cards;
+  }
+  async systemDeck(packId: string): Promise<SystemDeck> {
+    ensure(PACK_DECKS[packId], 'VALIDATION', 'Game không hợp lệ.');
     const [rows] = await this.pool.execute<RowDataPacket[]>(
-      'SELECT cards FROM default_decks WHERE id = ?',
-      [PACK_DECKS[packId] ? packId : defaultPackId],
+      'SELECT cards, revision FROM default_decks WHERE id = ?',
+      [packId],
     );
-    return decode(rows[0].cards);
+    ensure(rows[0], 'DECK_NOT_FOUND', 'Không tìm thấy bộ bài mặc định.');
+    return { packId, cards: decode(rows[0].cards), revision: Number(rows[0].revision) };
+  }
+  async updateSystemDeck(packId: string, revision: number, cards: Card[]): Promise<SystemDeck> {
+    this.validateDeckCards(packId, cards);
+    ensure(cards.length >= 2 && cards.length <= 200, 'VALIDATION', 'Bộ bài cần từ 2 đến 200 lá.');
+    const [result] = await this.pool.execute<mysql.ResultSetHeader>(
+      'UPDATE default_decks SET cards = ?, revision = revision + 1 WHERE id = ? AND revision = ?',
+      [JSON.stringify(cards), packId, revision],
+    );
+    ensure(
+      result.affectedRows === 1,
+      'STALE_REVISION',
+      'Bộ bài vừa thay đổi. Hãy tải lại rồi sửa.',
+    );
+    return this.systemDeck(packId);
   }
   private validateDeckCards(packId: string, cards: Card[]) {
     const pack = packById(packId);
@@ -507,8 +644,8 @@ export class Store implements OnModuleInit, OnModuleDestroy {
   ) {
     const key = hash(`${identity.id}:${requestId}`);
     const [existing] = await this.pool.execute<RowDataPacket[]>(
-      'SELECT * FROM rooms WHERE create_key = ? AND expires_at > ?',
-      [key, Date.now()],
+      'SELECT * FROM rooms WHERE create_key = ? AND expires_at > ? AND (offline_since IS NULL OR offline_since > ?)',
+      [key, Date.now(), Date.now() - offlineTtl],
     );
     if (existing[0]) {
       const room = roomFromRow(existing[0]);
@@ -528,7 +665,6 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       ensure(deck.cards.length >= 2, 'DECK_TOO_SMALL', 'Bộ bài cần ít nhất 2 lá.');
       cards = deck.cards;
     } else {
-      ensure(!identity.userId, 'DECK_REQUIRED', 'Hãy chọn bộ bài của bạn trước khi tạo phòng.');
       cards = await this.defaultDeck(packId);
     }
     const initial = initialState(
@@ -544,17 +680,12 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       revision: 0,
       receipts: [],
       expiresAt: Date.now() + lifespan(initial),
+      offlineSince: null,
     };
-    await this.pool.execute('INSERT INTO rooms VALUES (?, ?, ?, ?, ?, ?, ?, ?)', [
-      room.id,
-      name,
-      room.password,
-      JSON.stringify(room.state),
-      0,
-      '[]',
-      room.expiresAt,
-      key,
-    ]);
+    await this.pool.execute(
+      'INSERT INTO rooms (id, name, password_hash, state, revision, receipts, expires_at, create_key) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [room.id, name, room.password, JSON.stringify(room.state), 0, '[]', room.expiresAt, key],
+    );
     return room;
   }
   /** Số phiên đăng nhập còn hiệu lực; dùng cho bảng quản trị. */
@@ -568,8 +699,8 @@ export class Store implements OnModuleInit, OnModuleDestroy {
   /** Toàn bộ phòng còn hiệu lực, kèm state đầy đủ. */
   async allRooms(): Promise<StoredRoom[]> {
     const [rows] = await this.pool.execute<RowDataPacket[]>(
-      'SELECT * FROM rooms WHERE expires_at > ? ORDER BY expires_at DESC LIMIT 200',
-      [Date.now()],
+      'SELECT * FROM rooms WHERE expires_at > ? AND (offline_since IS NULL OR offline_since > ?) ORDER BY expires_at DESC LIMIT 200',
+      [Date.now(), Date.now() - offlineTtl],
     );
     return rows.map(roomFromRow);
   }
@@ -586,8 +717,8 @@ export class Store implements OnModuleInit, OnModuleDestroy {
   }
   async read(id: string): Promise<StoredRoom> {
     const [rows] = await this.pool.execute<RowDataPacket[]>(
-      'SELECT * FROM rooms WHERE id = ? AND expires_at > ?',
-      [id, Date.now()],
+      'SELECT * FROM rooms WHERE id = ? AND expires_at > ? AND (offline_since IS NULL OR offline_since > ?)',
+      [id, Date.now(), Date.now() - offlineTtl],
     );
     ensure(rows[0], 'ROOM_NOT_FOUND', 'Phòng không tồn tại hoặc đã hết hạn.');
     return roomFromRow(rows[0]);
@@ -598,8 +729,8 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       JSON_UNQUOTE(JSON_EXTRACT(state, '$.phase')) AS phase,
       JSON_UNQUOTE(JSON_EXTRACT(state, '$.packId')) AS pack_id,
       JSON_EXTRACT(state, '$.players') AS players
-      FROM rooms WHERE expires_at > ? ORDER BY expires_at DESC LIMIT 100`,
-      [Date.now()],
+       FROM rooms WHERE expires_at > ? AND (offline_since IS NULL OR offline_since > ?) ORDER BY expires_at DESC LIMIT 100`,
+      [Date.now(), Date.now() - offlineTtl],
     );
     return rows
       .map((r) => ({
@@ -668,7 +799,10 @@ export class Store implements OnModuleInit, OnModuleDestroy {
         [id],
       );
       ensure(
-        rows[0] && Number(rows[0].expires_at) > Date.now(),
+        rows[0] &&
+          Number(rows[0].expires_at) > Date.now() &&
+          (rows[0].offline_since == null ||
+            Number(rows[0].offline_since) + offlineTtl > Date.now()),
         'ROOM_NOT_FOUND',
         'Phòng không tồn tại hoặc đã hết hạn.',
       );
@@ -677,16 +811,18 @@ export class Store implements OnModuleInit, OnModuleDestroy {
       update(room);
       if (before !== JSON.stringify(room.state)) room.revision++;
       room.expiresAt = Date.now() + lifespan(room.state);
-      await conn.execute(
-        'UPDATE rooms SET state = ?, revision = ?, receipts = ?, expires_at = ? WHERE id = ?',
-        [
-          JSON.stringify(room.state),
-          room.revision,
-          JSON.stringify(room.receipts),
-          room.expiresAt,
-          id,
-        ],
-      );
+      if (room.state.players.some((p) => p.active))
+        await conn.execute(
+          'UPDATE rooms SET state = ?, revision = ?, receipts = ?, expires_at = ? WHERE id = ?',
+          [
+            JSON.stringify(room.state),
+            room.revision,
+            JSON.stringify(room.receipts),
+            room.expiresAt,
+            id,
+          ],
+        );
+      else await conn.execute('DELETE FROM rooms WHERE id = ?', [id]);
       await conn.commit();
       return room;
     } catch (error) {

@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { KeyboardAvoidingView, Modal, Platform, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { categoryLabels, packById, type Card } from '@chamly/shared';
+import { deckCsvTemplate, exportDeckCsv, importDeckCsv } from './deck-csv';
+import { pickDeckCsv, saveDeckCsv } from './deck-file';
 import { Button, Copy, Field, Heading, Panel } from './ui';
 
 const newId = () =>
@@ -16,18 +18,44 @@ export function DeckEditor({
   packId,
   onClose,
   onSave,
+  description,
 }: {
   cards: Card[];
   editable: boolean;
   packId: string;
   onClose: () => void;
   onSave: (cards: Card[]) => Promise<boolean>;
+  description?: string;
 }) {
   const pack = packById(packId);
   const [draft, setDraft] = useState(() => cards.map((c) => ({ ...c })));
   const [editing, setEditing] = useState<Card | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [imported, setImported] = useState(false);
+  async function exportCsv(template = false) {
+    try {
+      await saveDeckCsv(
+        `${packId}-${template ? 'mau' : 'bo-bai'}.csv`,
+        template ? deckCsvTemplate() : exportDeckCsv(packId, draft),
+      );
+      setError('');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không xuất được file CSV.');
+    }
+  }
+  async function importCsv() {
+    setError('');
+    try {
+      const csv = await pickDeckCsv();
+      if (csv === null) return;
+      const next = importDeckCsv(csv, packId);
+      setDraft(next);
+      setImported(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không đọc được file CSV.');
+    }
+  }
   function add() {
     setEditing({
       id: newId(),
@@ -85,10 +113,16 @@ export function DeckEditor({
                 {editing
                   ? 'Điền nội dung lá bài rồi bấm Xong lá bài để đưa vào bản nháp.'
                   : editable
-                    ? 'Bản sao riêng của phòng. Thay đổi chỉ có hiệu lực sau khi lưu bộ bài.'
+                    ? (description ??
+                      'Bản sao riêng của phòng. Thay đổi chỉ có hiệu lực sau khi lưu bộ bài.')
                     : 'Nội dung bộ bài của phòng. Thứ tự bài úp được giữ kín trên server.'}
               </Copy>
               {!!error && <Text className="text-rose-300">{error}</Text>}
+              {imported && !editing && (
+                <Text className="text-emerald-300 text-sm">
+                  Đã nạp bản nháp từ CSV. Bấm “Lưu bộ bài” để áp dụng lên server.
+                </Text>
+              )}
               {editable && !editing && (
                 <Button title="+ Thêm lá mới" onPress={add} disabled={draft.length >= 200} />
               )}
@@ -174,6 +208,30 @@ export function DeckEditor({
                 </Panel>
               ) : (
                 <>
+                  <Panel>
+                    <Heading>Chỉnh sửa hàng loạt bằng CSV</Heading>
+                    <Copy>
+                      Xuất bộ hiện tại rồi mở bằng Excel/Google Sheets. Giữ nguyên dòng header và
+                      packId; để trống id cho lá mới. CSV phải có 2–200 lá, category đúng chủ đề,
+                      drinksCount 0–20, hasTimer/keepable là true/false; timerSeconds 1–600 nếu
+                      hasTimer=true. Tải về dưới dạng CSV UTF-8, dấu phẩy phân cách cột.
+                    </Copy>
+                    <Button title="Xuất bộ bài CSV" secondary onPress={() => void exportCsv()} />
+                    {editable && (
+                      <>
+                        <Button
+                          title="Tải mẫu CSV"
+                          secondary
+                          onPress={() => void exportCsv(true)}
+                        />
+                        <Button title="Nhập file CSV" secondary onPress={() => void importCsv()} />
+                        <Copy>
+                          Import thay toàn bộ bản nháp, không ghi ngay lên server. File sai sẽ không
+                          làm mất bản nháp hiện tại.
+                        </Copy>
+                      </>
+                    )}
+                  </Panel>
                   {draft.map((card, index) => (
                     <Panel key={card.id}>
                       <Text className="text-violet-300 text-xs font-bold">
@@ -228,6 +286,8 @@ export function DeckEditor({
                         try {
                           if (await onSave(draft)) onClose();
                           else setError('Chưa lưu được. Đóng bộ bài để xem thông báo và thử lại.');
+                        } catch (e) {
+                          setError(e instanceof Error ? e.message : 'Không lưu được bộ bài.');
                         } finally {
                           setBusy(false);
                         }

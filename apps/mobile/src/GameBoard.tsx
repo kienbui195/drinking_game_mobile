@@ -13,6 +13,44 @@ function useTurn(room: RoomView, playerId: string) {
   };
 }
 
+function GameRecap({ room }: { room: RoomView }) {
+  const players = room.players.filter((player) => player.cardsDrawnCount > 0);
+  const leaders = (field: 'cardsDrawnCount' | 'challengesCompleted') => {
+    const highest = Math.max(0, ...players.map((player) => player[field]));
+    return highest
+      ? `${players
+          .filter((player) => player[field] === highest)
+          .map((player) => player.name)
+          .join(', ')} · ${highest}`
+      : 'Chưa có';
+  };
+  const moments = room.history
+    .filter((entry) => entry.completed && entry.card && !entry.skipped)
+    .slice(-3)
+    .reverse();
+  return (
+    <Panel>
+      <Heading>✨ Tổng kết ván chơi</Heading>
+      <Copy>Nhìn lại những khoảnh khắc của cả bàn trước khi bắt đầu ván mới.</Copy>
+      <Text className="text-slate-100">🃏 Rút nhiều bài nhất: {leaders('cardsDrawnCount')}</Text>
+      <Text className="text-slate-100">
+        🏆 Hoàn thành nhiều nhất: {leaders('challengesCompleted')}
+      </Text>
+      <Text className="text-violet-200 font-bold">Khoảnh khắc đáng nhớ</Text>
+      {moments.length ? (
+        moments.map((entry, index) => (
+          <Copy key={`${entry.at}-${index}`}>
+            {entry.playerName} hoàn thành “{entry.card?.title}”
+            {entry.votes ? ` · cả bàn bình chọn ${entry.votes.accepted} đạt` : ''}
+          </Copy>
+        ))
+      ) : (
+        <Copy>Chưa có thử thách nào được hoàn thành trong ván này.</Copy>
+      )}
+    </Panel>
+  );
+}
+
 /** Dải trạng thái vòng chơi, đặt trong vùng header cố định của màn hình phòng. */
 export function RoundStatus({ room }: { room: RoomView }) {
   return (
@@ -97,6 +135,7 @@ export function GameBoard({
         ) : (
           <Copy>Ván đã kết thúc. Đang chờ chủ phòng mở ván mới.</Copy>
         ))}
+      {room.phase === 'ended' && <GameRecap room={room} />}
       <Panel>
         <Heading>Bảng thành tích</Heading>
         <Copy>Số {pack.unitLabel} chỉ được cộng khi bỏ qua.</Copy>
@@ -136,6 +175,11 @@ export function GameBoard({
                         ? 'Hoàn thành · không bị phạt'
                         : `Bỏ qua · ${entry.drinks} ${pack.unitLabel}`}
                 </Copy>
+                {entry.votes && (
+                  <Copy>
+                    Cả bàn bình chọn: {entry.votes.accepted} đạt · {entry.votes.rejected} chưa đạt
+                  </Copy>
+                )}
               </View>
             ))
         )}

@@ -12,6 +12,7 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     slug: 'cham-ly-mobile',
     plugins: [
       'expo-secure-store',
+      'expo-sharing',
       ['expo-build-properties', { android: { usesCleartextTraffic: !production } }],
     ],
   };

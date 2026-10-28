@@ -1,0 +1,12 @@
+# Bản mẫu của /etc/caddy/sites/chamly.caddy trên VPS.
+# Web và API cùng domain: các đường dẫn của Nest vào chamly-api, còn lại vào web tĩnh.
+http://chamly.baodom.xyz {
+	encode gzip zstd
+	@api path /socket.io/* /health /sessions /auth/*
+	handle @api {
+		reverse_proxy 127.0.0.1:3107
+	}
+	handle {
+		reverse_proxy 127.0.0.1:3108
+	}
+}

@@ -102,3 +102,45 @@ test('admin dashboard lists rooms and can manage them', async ({ browser }) => {
     await b.close();
   }
 });
+
+test('admin can open the system deck editor and a new user can create from the default deck', async ({
+  browser,
+}) => {
+  const a = await browser.newContext();
+  const b = await browser.newContext();
+  const admin = await a.newPage();
+  const player = await b.newPage();
+  try {
+    await adminLogin(admin, ADMIN_PASSWORD);
+    await expect(admin.getByText('🛠️ Bảng điều khiển')).toBeVisible();
+    await admin.getByRole('button', { name: 'Sửa bộ mặc định · 🧠 Hỏi Đáp Kiến Thức' }).click();
+    await expect(
+      admin.getByText(
+        'Bộ gốc của hệ thống. Chỉ phòng và bản sao tạo sau khi lưu mới nhận thay đổi.',
+      ),
+    ).toBeVisible();
+    await expect(admin.getByRole('button', { name: '+ Thêm lá mới' })).toBeVisible();
+    await admin.getByRole('button', { name: 'Đóng bộ bài' }).click();
+
+    await player.goto('http://localhost:45102');
+    await player.getByRole('button', { name: 'Tạo tài khoản mới', exact: true }).click();
+    await player.getByLabel('Tên hiển thị', { exact: true }).fill(`Bộ Gốc ${Date.now()}`);
+    await player.getByLabel('Mật khẩu đăng ký', { exact: true }).fill('admin-spec-password');
+    await player.getByRole('button', { name: 'Tạo tài khoản và vào sảnh', exact: true }).click();
+    await expect(player.getByText('● Trực tuyến', { exact: true })).toBeVisible();
+    await player.getByRole('button', { name: 'Tạo phòng mới', exact: true }).click();
+    await expect(player.getByLabel('Bộ mặc định của hệ thống')).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await player.getByLabel('Tên phòng', { exact: true }).fill('Phòng dùng bộ gốc');
+    await player
+      .getByLabel('Mật khẩu phòng (ít nhất 4 ký tự)', { exact: true })
+      .fill('default-deck-test');
+    await player.getByRole('button', { name: 'Tạo phòng', exact: true }).click();
+    await expect(player.getByLabel(/^Mã phòng [A-F0-9]{6}$/)).toBeVisible();
+  } finally {
+    await a.close();
+    await b.close();
+  }
+});

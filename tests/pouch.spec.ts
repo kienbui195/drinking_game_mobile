@@ -63,7 +63,7 @@ test('a keepable card can be stashed and played in a later round', async ({ brow
     await host.getByLabel('Hình phạt / kết quả', { exact: true }).fill('Không phạt gì cả.');
     await host.getByRole('button', { name: /Cất được vào túi thần kỳ · Tắt/ }).click();
     await host.getByRole('button', { name: 'Xong lá bài', exact: true }).click();
-    for (let i = 0; i < 50; i++)
+    while ((await host.getByRole('button', { name: 'Xóa', exact: true }).count()) > 2)
       await host.getByRole('button', { name: 'Xóa', exact: true }).first().click();
     await expect(host.getByText('Bộ bài · 2 lá', { exact: true })).toBeVisible();
     await host.getByRole('button', { name: 'Lưu bộ bài (2 lá)', exact: true }).click();

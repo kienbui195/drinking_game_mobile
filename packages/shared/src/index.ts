@@ -144,6 +144,12 @@ export interface HistoryEntry {
   stashed?: boolean;
   /** Lá được lấy ra từ túi thần kỳ thay cho việc rút bài mới. */
   fromPouch?: boolean;
+  /** Kết quả bình chọn từ những người không ở lượt, nếu lượt dùng bình chọn. */
+  votes?: { accepted: number; rejected: number };
+}
+export interface ChallengeVote {
+  penalty: number;
+  choices: Record<string, boolean>;
 }
 export interface GameState {
   phase: 'lobby' | 'playing' | 'depleted' | 'ended';
@@ -158,6 +164,8 @@ export interface GameState {
   /** Lá đang dùng lấy từ túi thần kỳ; thay chỗ cho lá rút trong vòng hiện tại. */
   pouchCard: Card | null;
   timerEndsAt: number | null;
+  /** Optional để những phòng tạo trước khi có tính năng bình chọn vẫn khôi phục được. */
+  vote?: ChallengeVote | null;
   history: HistoryEntry[];
   hostId: string;
 }
@@ -181,10 +189,14 @@ export interface RoomView extends RoomSummary {
   currentPlayerId: string | null;
   revealed: Card | null;
   timerEndsAt: number | null;
+  vote: { votedPlayerIds: string[]; total: number } | null;
   history: HistoryEntry[];
 }
 export type Action =
   | { type: 'saveDeck'; cards: Card[] }
+  | { type: 'requestVote'; drinks: number }
+  | { type: 'vote'; accepted: boolean }
+  | { type: 'cancelVote' }
   | { type: 'stash' }
   | { type: 'usePouch'; cardId: string }
   | { type: 'start' }
@@ -226,6 +238,11 @@ export interface OwnedDeck {
   cards: Card[];
   createdAt: number;
   updatedAt: number;
+}
+export interface SystemDeck {
+  packId: string;
+  cards: Card[];
+  revision: number;
 }
 export type Reply<T> =
   { ok: true; data: T } | { ok: false; code: string; message: string; nextAllowedAt?: number };

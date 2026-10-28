@@ -1,8 +1,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ScrollView, Text, View } from 'react-native';
 import type { Socket } from 'socket.io-client';
-import { packById, type AdminOverview, type AdminRoom } from '@chamly/shared';
+import {
+  packById,
+  packs,
+  type AdminOverview,
+  type AdminRoom,
+  type SystemDeck,
+} from '@chamly/shared';
 import { request } from './connection';
+import { DeckEditor } from './DeckEditor';
 import { Button, Copy, Field, Heading, Panel } from './ui';
 import { Toast } from './Toast';
 
@@ -123,6 +130,7 @@ export function AdminDashboard({ socket, onExit }: { socket: Socket; onExit: () 
   const [sent, setSent] = useState('');
   const [auto, setAuto] = useState(true);
   const [now, setNow] = useState(Date.now());
+  const [systemDeck, setSystemDeck] = useState<SystemDeck | null>(null);
   // Toast báo thành công tự ẩn sau 3s.
   useEffect(() => {
     if (!sent) return;
@@ -167,6 +175,16 @@ export function AdminDashboard({ socket, onExit }: { socket: Socket; onExit: () 
       setBusy(false);
     }
   }
+  async function openSystemDeck(packId: string) {
+    setBusy(true);
+    try {
+      setSystemDeck(await request<SystemDeck>(socket, 'admin:systemDeck', { packId }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không tải được bộ bài mặc định.');
+    } finally {
+      setBusy(false);
+    }
+  }
   const rooms = data?.rooms ?? [];
   const playing = rooms.filter((r) => r.phase === 'playing').length;
   const seated = rooms.reduce((sum, r) => sum + r.players.filter((p) => p.active).length, 0);
@@ -197,7 +215,7 @@ export function AdminDashboard({ socket, onExit }: { socket: Socket; onExit: () 
         <View className="flex-row flex-wrap gap-3">
           <Stat label="Phòng đang chơi" value={playing} />
           <Stat label="Người trong phòng" value={seated} />
-          <Stat label="Phiên còn hiệu lực" value={data?.sessions ?? '—'} />
+          <Stat label="Phiên đăng nhập chưa hết hạn" value={data?.sessions ?? '—'} />
         </View>
 
         <Panel>
@@ -216,6 +234,23 @@ export function AdminDashboard({ socket, onExit }: { socket: Socket; onExit: () 
               </View>
             ))
           )}
+        </Panel>
+
+        <Panel>
+          <Heading>Bộ bài mặc định của hệ thống</Heading>
+          <Copy>
+            Sửa bộ gốc theo chủ đề. Người chơi có thể sao chép vào thư viện hoặc tạo phòng từ bộ
+            hiện tại; phòng và bản sao đã tạo không thay đổi khi bạn sửa bộ gốc.
+          </Copy>
+          {packs.map((pack) => (
+            <Button
+              key={pack.id}
+              title={`Sửa bộ mặc định · ${pack.icon} ${pack.name}`}
+              secondary
+              disabled={busy}
+              onPress={() => void openSystemDeck(pack.id)}
+            />
+          ))}
         </Panel>
 
         <Panel>
@@ -276,6 +311,25 @@ export function AdminDashboard({ socket, onExit }: { socket: Socket; onExit: () 
       <View className="border-t border-slate-700 px-4 pb-2 pt-3">
         <Button title="Thoát trang quản trị" secondary onPress={onExit} />
       </View>
+      {systemDeck && (
+        <DeckEditor
+          key={`${systemDeck.packId}:${systemDeck.revision}`}
+          cards={systemDeck.cards}
+          editable
+          packId={systemDeck.packId}
+          description="Bộ gốc của hệ thống. Chỉ phòng và bản sao tạo sau khi lưu mới nhận thay đổi."
+          onClose={() => setSystemDeck(null)}
+          onSave={async (cards) => {
+            await request<SystemDeck>(socket, 'admin:updateSystemDeck', {
+              packId: systemDeck.packId,
+              revision: systemDeck.revision,
+              cards,
+            });
+            setSent('Đã lưu bộ bài mặc định.');
+            return true;
+          }}
+        />
+      )}
     </View>
   );
 }
