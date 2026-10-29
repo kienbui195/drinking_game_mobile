@@ -134,7 +134,7 @@
       <h2>Chạm Ly</h2>
       <a href="#overview">Tổng quan</a><a href="#run">Chạy local</a
       ><a href="#rules">Luật phiên chơi</a><a href="#architecture">Kiến trúc &amp; dữ liệu</a
-      ><a href="#acceptance">Kiểm chứng</a><a href="#apk">Expo Go &amp; APK</a>
+      ><a href="#acceptance">Kiểm chứng</a><a href="#apk">Web app trên điện thoại</a>
       <hr />
       <h3>Tài liệu trong series</h3>
       <a href="00-state.md">0. Trạng thái</a><strong>1. Triển khai (đang xem)</strong
@@ -171,7 +171,7 @@
           </tr>
           <tr>
             <td>
-              Web, code native Expo, phòng mật khẩu, deck CRUD, realtime, thống kê và reconnect
+              Web app mobile (PWA), phòng mật khẩu, deck CRUD, realtime, thống kê và reconnect
             </td>
             <td>
               Tài khoản lâu dài, lịch sử nhiều phiên, chat/video, CMS, tự động đánh giá thử thách
@@ -180,7 +180,7 @@
           </tr>
           <tr>
             <td>Docker Compose phát triển; cấu hình production mẫu</td>
-            <td>Deploy lên VPS thật, đo tải, tài khoản và chữ ký EAS, kiểm thử điện thoại thật</td>
+            <td>Đo tải, kiểm thử trên điện thoại thật</td>
           </tr>
         </table>
       </section>
@@ -201,10 +201,11 @@ npm run web</pre>
           và ẩn danh), vì hai tab chung trình duyệt dùng cùng token lưu cục bộ.
         </p>
         <p>
-          Máy hiện tại đã cấu hình địa chỉ LAN <code>192.168.1.239</code>. File
-          <code>apps/mobile/.env.local</code> chứa EXPO_PUBLIC_API_URL; file <code>.env</code> chứa
-          CORS_ORIGINS cho localhost và LAN. Địa chỉ LAN thay đổi thì cập nhật hai file và khởi động
-          lại Expo/API. Các file này bị Git ignore.
+          Vite dev server nghe mọi interface (<code>--host</code>), nên điện thoại cùng Wi-Fi mở
+          <code>http://&lt;IP LAN&gt;:45102</code> là chơi được; app tự gọi API ở cùng hostname cổng
+          45100. File <code>.env</code> chứa CORS_ORIGINS cho localhost và LAN; địa chỉ LAN thay đổi
+          thì cập nhật và khởi động lại API. URL API cho bản build đặt bằng
+          <code>VITE_API_URL</code>.
         </p>
         <pre>
 # Phát triển backend ngoài Docker, vẫn dùng MySQL container:
@@ -216,13 +217,13 @@ npm run typecheck
 npm run build:api
 npm test
 npm run test:integration
-EXPO_OFFLINE=1 npm run export:web -w @chamly/app
 npx playwright install chromium
-npm run test:e2e</pre>
+npm run test:e2e   # build apps/web rồi chạy Playwright</pre>
         <p>
           Test integration dùng database local trên cổng 45101, tạo dữ liệu riêng rồi dọn dữ liệu đó;
           một test khởi chạy backend thử nghiệm ở cổng 45105 để kiểm tra restart. Playwright mở hai
-          trình duyệt thật và tự bấm UI. Ảnh nằm ở <code>test-results/</code>.
+          trình duyệt thật và tự bấm UI; <code>tests/mobile-shell.spec.ts</code> giả lập Pixel 7 có
+          cảm ứng để kiểm tra vuốt băng chuyền, chặn pull-to-refresh và nút back. Ảnh nằm ở <code>test-results/</code>.
         </p>
       </section>
       <section id="rules">
@@ -259,7 +260,8 @@ npm run test:e2e</pre>
       <section id="architecture">
         <h2>4. Kiến trúc hiện trạng</h2>
         <p>
-          <code>apps/mobile</code> dùng React Native + Expo SDK 57 + NativeWind 4.
+          <code>apps/web</code> dùng React 19 + Vite + TypeScript + Tailwind 4 + shadcn/ui (Radix,
+          style nova, theme tối tùy biến trong <code>src/index.css</code>).
           <code>apps/api</code> dùng NestJS 11, Socket.IO 4 và mysql2.
           <code>packages/shared</code> là hợp đồng TypeScript giữa hai bên, không chứa mật khẩu hoặc
           trạng thái bí mật của phòng.
@@ -297,8 +299,8 @@ npm run test:e2e</pre>
           <tr>
             <td>Thiết bị</td>
             <td>
-              AsyncStorage cho metadata; native SecureStore cho token; web localStorage qua
-              AsyncStorage. Không lưu tiến trình có thẩm quyền.
+              localStorage giữ phiên (token, người chơi, phòng đang ở). Không lưu tiến trình có
+              thẩm quyền.
             </td>
           </tr>
         </table>
@@ -378,8 +380,11 @@ npm run test:e2e</pre>
           </tr>
           <tr>
             <td>AC-10</td>
-            <td>Điện thoại cài Expo Go / quét QR và chơi / UI native và realtime hoạt động.</td>
-            <td class="pending">Chưa kiểm thử trên máy thật</td>
+            <td>
+              Trình duyệt điện thoại / vuốt, kéo xuống, bấm back / băng chuyền đổi lá, trang không
+              cuộn hay reload, back không thoát app.
+            </td>
+            <td class="pass">Playwright (Pixel 7, touch) đạt; chưa thử máy thật</td>
           </tr>
         </table>
         <p>
@@ -389,27 +394,28 @@ npm run test:e2e</pre>
         </p>
       </section>
       <section id="apk">
-        <h2>6. Expo Go và APK</h2>
-        <pre>
-npm start
-# Quét QR bằng Expo Go phù hợp SDK 57.
-# Điện thoại cùng Wi-Fi và phải truy cập được backend ở IP LAN.</pre>
+        <h2>6. Web app trên điện thoại</h2>
         <p>
-          Expo Go chạy bundle native từ Metro. Cổng 8081 phục vụ Metro/web; API dùng cổng 3000. Expo
-          tunnel chỉ đưa Metro ra ngoài mạng, không tự đưa backend ra Internet.
+          Bản Expo/APK đã bỏ: game chỉ còn bản web, tối ưu để mở trên trình duyệt điện thoại gần như
+          app native. Nguyên tắc chung cho mọi dự án ở <code>~/Learning/MOBILE_WEB.md</code>.
         </p>
-        <pre>
-# Từ apps/mobile, sau khi có tài khoản Expo:
-npx eas-cli login
-npx eas-cli init
-# Cấu hình EXPO_PUBLIC_API_URL cho môi trường EAS, trỏ tới backend thực.
-npx eas-cli build --platform android --profile preview</pre>
-        <p>
-          <code>eas.json</code> có profile preview xuất APK. Preview cho phép HTTP LAN; production
-          yêu cầu URL HTTPS. URL API được nhúng lúc build, thay đổi URL phải build lại.
-          <code>eas whoami</code> hiện trả về <strong>Not logged in</strong>; chưa tạo build EAS
-          hoặc file APK.
-        </p>
+        <ul>
+          <li>
+            Khung app cố định <code>100dvh</code>; <code>html/body</code> không cuộn và
+            <code>overscroll-behavior: none</code> → không pull-to-refresh, thanh địa chỉ không nhảy.
+            Chỉ vùng giữa (<code>scroll-area</code>) cuộn.
+          </li>
+          <li>Băng chuyền dùng shadcn Carousel (Embla): vuốt ngang đổi lá, vuốt dọc vẫn cuộn.</li>
+          <li>
+            Nút back / vuốt mép Android đóng lớp trên cùng (bộ bài, túi, màn con); ở sảnh phải bấm
+            back hai lần mới thoát.
+          </li>
+          <li>
+            PWA (<code>manifest.webmanifest</code>, display fullscreen): "Thêm vào màn hình chính"
+            để chạy toàn màn hình. Android Chrome có thêm nút toàn màn hình ở header; iPhone dùng PWA.
+          </li>
+          <li>Giữ màn hình sáng trong phòng (Wake Lock), rung + chuông khi tới lượt.</li>
+        </ul>
       </section>
       <section>
         <h2>Tham chiếu mã nguồn</h2>
@@ -427,11 +433,11 @@ npx eas-cli build --platform android --profile preview</pre>
             <td>Socket events và snapshot công khai</td>
           </tr>
           <tr>
-            <td>apps/mobile/src/App.tsx</td>
+            <td>apps/web/src/App.tsx</td>
             <td>Điều phối UI, khôi phục phiên, đồng bộ</td>
           </tr>
           <tr>
-            <td>apps/mobile/src/DeckEditor.tsx / GameBoard.tsx</td>
+            <td>apps/web/src/components/game/*</td>
             <td>Biên tập bài và bàn chơi</td>
           </tr>
           <tr>

@@ -6,26 +6,23 @@
     "packages/*"
   ],
   "scripts": {
-    "start": "npm run start -w @chamly/app",
-    "web": "npm run web -w @chamly/app",
+    "web": "npm run dev -w @chamly/web",
     "api": "npm run dev -w @chamly/api",
     "build:api": "npm run build -w @chamly/api",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test -w @chamly/api",
     "test:integration": "npm run test:integration -w @chamly/api",
-    "test:e2e": "playwright test",
+    "test:e2e": "npm run build:web && playwright test",
     "format": "prettier --write apps packages tests playwright.config.ts package.json compose.yaml",
-    "format:check": "prettier --check apps packages tests playwright.config.ts package.json compose.yaml"
+    "format:check": "prettier --check apps packages tests playwright.config.ts package.json compose.yaml",
+    "build:web": "npm run build -w @chamly/web"
   },
   "engines": {
     "node": ">=22.13"
   },
   "overrides": {
     "react": "19.2.3",
-    "react-dom": "19.2.3",
-    "react-native": "0.86.3",
-    "react-native-reanimated": "4.5.1",
-    "react-native-worklets": "0.10.1"
+    "react-dom": "19.2.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.63.0",

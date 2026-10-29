@@ -28,7 +28,7 @@ import {
 } from './validation';
 
 export const allowedOrigins = () =>
-  (process.env.CORS_ORIGINS ?? 'http://localhost:45102,http://localhost:45103')
+  (process.env.CORS_ORIGINS ?? 'http://localhost:45102')
     .split(',')
     .map((s) => s.trim());
 export function originAllowed(origin?: string) {

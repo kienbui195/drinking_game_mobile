@@ -54,7 +54,7 @@ test('two independent browsers create, edit, join, play and resume', async ({ br
     await host.getByRole('button', { name: 'Sửa', exact: true }).first().click();
     await host.getByLabel('Tên lá bài', { exact: true }).fill('Lá bài đã sửa UI');
     await host.getByRole('button', { name: 'Xong lá bài', exact: true }).click();
-    await host.getByRole('button', { name: '+ Thêm lá mới', exact: true }).click();
+    await host.getByRole('button', { name: 'Thêm lá mới', exact: true }).click();
     await host.getByLabel('Tên lá bài', { exact: true }).fill('Lá thêm mới');
     await host.getByLabel('Nội dung', { exact: true }).fill('Kể một câu chuyện vui.');
     await host.getByLabel('Hình phạt / kết quả', { exact: true }).fill('Cả bàn vỗ tay.');

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deckCsvTemplate, exportDeckCsv, importDeckCsv } from '../../mobile/src/deck-csv';
+import { deckCsvTemplate, exportDeckCsv, importDeckCsv } from '../../web/src/lib/deck-csv';
 import { DEFAULT_CARDS } from '../src/default-cards';
 
 test('CSV round-trip keeps ids, Unicode, commas, quotes and line breaks', () => {

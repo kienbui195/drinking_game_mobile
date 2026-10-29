@@ -49,19 +49,19 @@ test('a keepable card can be stashed and played in a later round', async ({ brow
 
     // Bộ bài rút gọn về đúng hai lá giữ được, để vòng nào cũng chắc chắn lật trúng.
     await host.getByRole('button', { name: /^Chỉnh bộ bài/ }).click();
-    await host.getByRole('button', { name: '+ Thêm lá mới', exact: true }).click();
+    await host.getByRole('button', { name: 'Thêm lá mới', exact: true }).click();
     await host.getByLabel('Tên lá bài', { exact: true }).fill('Lá để dành A');
-    await host.getByRole('button', { name: 'Quyền lực', exact: true }).click();
+    await host.getByRole('radio', { name: 'Quyền lực', exact: true }).click();
     await host.getByLabel('Nội dung', { exact: true }).fill('Dùng bất cứ lúc nào bạn muốn.');
     await host.getByLabel('Hình phạt / kết quả', { exact: true }).fill('Không phạt gì cả.');
-    await host.getByRole('button', { name: /Cất được vào túi thần kỳ · Tắt/ }).click();
+    await host.getByRole('switch', { name: /Cất được vào túi thần kỳ/ }).click();
     await host.getByRole('button', { name: 'Xong lá bài', exact: true }).click();
-    await host.getByRole('button', { name: '+ Thêm lá mới', exact: true }).click();
+    await host.getByRole('button', { name: 'Thêm lá mới', exact: true }).click();
     await host.getByLabel('Tên lá bài', { exact: true }).fill('Lá để dành B');
-    await host.getByRole('button', { name: 'Quyền lực', exact: true }).click();
+    await host.getByRole('radio', { name: 'Quyền lực', exact: true }).click();
     await host.getByLabel('Nội dung', { exact: true }).fill('Cũng dùng được về sau.');
     await host.getByLabel('Hình phạt / kết quả', { exact: true }).fill('Không phạt gì cả.');
-    await host.getByRole('button', { name: /Cất được vào túi thần kỳ · Tắt/ }).click();
+    await host.getByRole('switch', { name: /Cất được vào túi thần kỳ/ }).click();
     await host.getByRole('button', { name: 'Xong lá bài', exact: true }).click();
     while ((await host.getByRole('button', { name: 'Xóa', exact: true }).count()) > 2)
       await host.getByRole('button', { name: 'Xóa', exact: true }).first().click();

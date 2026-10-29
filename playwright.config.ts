@@ -9,7 +9,7 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   webServer: {
-    command: 'python3 -m http.server 45102 --directory apps/mobile/dist',
+    command: 'python3 -m http.server 45102 --directory apps/web/dist',
     url: 'http://localhost:45102',
     reuseExistingServer: !process.env.CI,
   },

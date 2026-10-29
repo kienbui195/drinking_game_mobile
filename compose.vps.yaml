@@ -44,9 +44,9 @@ services:
   chamly-web:
     build:
       context: .
-      dockerfile: apps/mobile/Dockerfile
+      dockerfile: apps/web/Dockerfile
       args:
-        EXPO_PUBLIC_API_URL: https://chamly.baodom.xyz
+        VITE_API_URL: https://chamly.baodom.xyz
     image: chamly-web:latest
     container_name: chamly-web
     restart: unless-stopped

@@ -1,0 +1,182 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+@import '@fontsource-variable/geist';
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-heading: var(--font-sans);
+  --font-sans: 'Geist Variable', system-ui, sans-serif;
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  /* Token riêng của game: vàng cho hình phạt / cảnh báo, xanh cho thành công. */
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+/* App chỉ có theme tối (index.html gắn sẵn class="dark"); :root giữ cùng giá trị để không
+   bao giờ nháy theme sáng. */
+:root,
+.dark {
+  --background: #10101c;
+  --foreground: #f8fafc;
+  --card: #1c1c30;
+  --card-foreground: #f8fafc;
+  --popover: #1c1c30;
+  --popover-foreground: #f8fafc;
+  --primary: #a78bfa;
+  --primary-foreground: #0b0b16;
+  --secondary: #26263f;
+  --secondary-foreground: #f1f5f9;
+  --muted: #26263f;
+  --muted-foreground: #94a3b8;
+  --accent: #3b2a6b;
+  --accent-foreground: #ede9fe;
+  --destructive: #fb7185;
+  --border: #334155;
+  --input: #334155;
+  --ring: #c4b5fd;
+  --warning: #fcd34d;
+  --warning-foreground: #451a03;
+  --success: #6ee7b7;
+  --success-foreground: #022c22;
+  --radius: 0.75rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+
+  /* Khung app cố định: document không bao giờ cuộn, nên không có pull-to-refresh, không nảy
+     và thanh địa chỉ không ẩn/hiện làm giật layout. Chỉ các vùng .scroll-area bên trong cuộn. */
+  html,
+  body {
+    height: 100%;
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    touch-action: manipulation;
+  }
+  body {
+    background: #020617;
+  }
+  #root {
+    position: fixed;
+    inset: 0;
+    height: 100dvh;
+    width: 100%;
+    max-width: 430px;
+    margin-inline: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--background);
+    box-shadow: 0 0 48px rgb(15 23 42 / 65%);
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+      env(safe-area-inset-left);
+  }
+
+  /* Dưới 16px iOS tự zoom khi focus ô nhập. */
+  input,
+  textarea,
+  select {
+    font-size: 16px;
+  }
+
+  button,
+  [role='button'] {
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@utility scroll-area {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  /* Vùng cuộn dạng flex: con giữ nguyên chiều cao thật, không bị co lại để vừa khung. */
+  & > * {
+    flex-shrink: 0;
+  }
+}
+
+@utility pb-safe {
+  padding-bottom: max(0.5rem, env(safe-area-inset-bottom));
+}
+
+@keyframes turn-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 0.86;
+  }
+}
+@utility animate-turn-pulse {
+  animation: turn-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes card-pop {
+  from {
+    transform: scale(0.92);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+@utility animate-card-pop {
+  animation: card-pop 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
